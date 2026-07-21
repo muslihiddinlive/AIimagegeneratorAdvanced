@@ -25,7 +25,7 @@ from aiogram import Bot
 from aiogram.types import BufferedInputFile
 
 from config import (
-    DB_GROUP_ID, STATE_FILENAME, SUPERADMIN_ID, SAVE_DEBOUNCE_SECONDS,
+    DB_GROUP_ID, STATE_FILENAME, SUPERADMIN_IDS, SAVE_DEBOUNCE_SECONDS,
     DEFAULT_TARIFFS, TARIFF_ORDER, BANNED_WORDS, BONUS_LIMIT_AMOUNT,
 )
 
@@ -171,7 +171,7 @@ class Store:
 
         user_rows = []
         for uid, u in sorted(users.items(), key=lambda kv: -kv[1].get("images_generated", 0)):
-            tag = " ⭐" if int(uid) in ({SUPERADMIN_ID} | set(d.get("admins", []))) else ""
+            tag = " ⭐" if int(uid) in (set(SUPERADMIN_IDS) | set(d.get("admins", []))) else ""
             name = (f"@{u['username']}" if u.get("username") else u.get("full_name")) or "—"
             user_rows.append(
                 "<tr>"
@@ -228,7 +228,7 @@ tr:nth-child(even){{background:#151821}}
 .meta{{color:#9aa4b2;font-size:13px}}
 </style></head><body>
 <h1>🗄 Bot Database</h1>
-<p class="meta">Superadmin: {esc(SUPERADMIN_ID)} | Yangilangan: {esc(date.today())}</p>
+<p class="meta">Superadmin(lar): {esc(', '.join(str(i) for i in SUPERADMIN_IDS))} | Yangilangan: {esc(date.today())}</p>
 <p class="meta">📢 Majburiy kanal: {esc(d.get('mandatory_channel') or '—')} | 🎁 Bonus kanal: {esc(d.get('bonus_channel') or '—')}</p>
 
 <h2>💳 Tariflar</h2>
@@ -264,7 +264,7 @@ tr:nth-child(even){{background:#151821}}
     # ---------- ruxsatlar ----------
 
     def is_admin_user(self, user_id: int) -> bool:
-        return user_id == SUPERADMIN_ID or user_id in self.data.get("admins", [])
+        return user_id in SUPERADMIN_IDS or user_id in self.data.get("admins", [])
 
     def is_unlimited(self, user_id: int) -> bool:
         return self.is_admin_user(user_id)

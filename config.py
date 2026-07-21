@@ -6,7 +6,32 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DB_GROUP_ID = int(os.getenv("DB_GROUP_ID", "0"))
-SUPERADMIN_ID = int(os.getenv("SUPERADMIN_ID", "0"))
+
+
+def _parse_id_list(raw: str) -> list[int]:
+    """"123456789" yoki "123456789,987654321" kabi vergul bilan ajratilgan
+    ID ro'yxatini xavfsiz tarzda int listga aylantiradi. Noto'g'ri
+    yozilgan qism bo'lsa, o'sha qism tashlab yuboriladi (bot crash bo'lmaydi)."""
+    ids: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(int(part))
+        except ValueError:
+            print(f"[config] SUPERADMIN_IDS ichida noto'g'ri qiymat e'tiborga olinmadi: {part!r}")
+    return ids
+
+
+# Bir nechta teng huquqli superadmin uchun: SUPERADMIN_IDS=123456789,987654321
+# Eski SUPERADMIN_ID (bitta ID) hali ham ishlaydi - orqaga moslik uchun.
+_raw_superadmin_ids = os.getenv("SUPERADMIN_IDS") or os.getenv("SUPERADMIN_ID", "0")
+SUPERADMIN_IDS = _parse_id_list(_raw_superadmin_ids) or [0]
+
+# Orqaga moslik: eski kod/loglarda bitta ID kutilgan joylar uchun (masalan
+# ko'rsatish maqsadida) - har doim ro'yxatdagi birinchisini bildiradi.
+SUPERADMIN_ID = SUPERADMIN_IDS[0]
 
 # ============================
 # WEBHOOK sozlamalari (Render uchun)

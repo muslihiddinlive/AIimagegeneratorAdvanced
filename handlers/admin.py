@@ -2,7 +2,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
-from config import SUPERADMIN_ID, TARIFF_ORDER, TARIFF_LABELS
+from config import SUPERADMIN_IDS, TARIFF_ORDER, TARIFF_LABELS
 from state import store, UNLIMITED
 from codes import generate_code
 from keyboards import (
@@ -23,8 +23,9 @@ def is_admin(user_id: int) -> bool:
 
 
 def is_superadmin(user_id: int) -> bool:
-    """Faqat asosiy egasi - adminlarni tayinlash/olib tashlash va kanal sozlamalari shu darajaga tegishli."""
-    return user_id == SUPERADMIN_ID
+    """Faqat asosiy egalar - adminlarni tayinlash/olib tashlash va kanal sozlamalari shu darajaga tegishli.
+    Bir nechta teng huquqli superadmin bo'lishi mumkin (config.SUPERADMIN_IDS)."""
+    return user_id in SUPERADMIN_IDS
 
 
 def allowed_grant_tariffs(caller_id: int) -> list[str]:

@@ -3,7 +3,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message, BufferedInputFile, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 
-from config import DB_GROUP_ID, SUPERADMIN_ID, TARIFF_LABELS, TARIFF_ORDER
+from config import DB_GROUP_ID, SUPERADMIN_IDS, TARIFF_LABELS, TARIFF_ORDER
 from state import store, UNLIMITED
 from moderation import contains_banned
 from pollinations import generate_image
@@ -325,7 +325,7 @@ async def admin_contact_message(message: Message, state: FSMContext, bot: Bot):
         f"✍️ Xabar: {message.text}"
     )
     sent_to_any = False
-    for admin_id in [SUPERADMIN_ID] + store.data.get("admins", []):
+    for admin_id in SUPERADMIN_IDS + store.data.get("admins", []):
         try:
             await bot.send_message(admin_id, text)
             sent_to_any = True
@@ -435,7 +435,7 @@ async def cb_tariff_request(call: CallbackQuery, bot: Bot):
         f"🎫 So'ralgan tarif: {label} ({info.get('price_stars')} ⭐/oy yoki {info.get('ref_required')} referal)"
     )
     sent_to_any = False
-    for admin_id in [SUPERADMIN_ID] + store.data.get("admins", []):
+    for admin_id in SUPERADMIN_IDS + store.data.get("admins", []):
         try:
             await bot.send_message(admin_id, text)
             sent_to_any = True
@@ -476,7 +476,7 @@ async def tariff_request(message: Message, state: FSMContext, bot: Bot):
         f"✍️ Xabar: {message.text}"
     )
     sent_to_any = False
-    for admin_id in [SUPERADMIN_ID] + store.data.get("admins", []):
+    for admin_id in SUPERADMIN_IDS + store.data.get("admins", []):
         try:
             await bot.send_message(admin_id, text)
             sent_to_any = True
