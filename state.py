@@ -379,6 +379,30 @@ tr:nth-child(even){{background:#151821}}
             order.append(name)
         return True
 
+    def delete_tariff(self, name: str) -> tuple[bool, str]:
+        """Tarifni butunlay o'chiradi. "free" tarifi o'chirilmaydi (u -
+        tizimning asosiy fallback tarifi). Shu tarifda turgan userlar
+        avtomatik "free"ga o'tkaziladi."""
+        if name == "free":
+            return False, "free_protected"
+        if name not in self.data.get("tariffs", {}):
+            return False, "not_found"
+
+        self.data["tariffs"].pop(name, None)
+        self.data.get("tariff_labels", {}).pop(name, None)
+        order = self.data.get("tariff_order", [])
+        if name in order:
+            order.remove(name)
+
+        migrated = 0
+        for u in self.data.get("users", {}).values():
+            if u.get("tariff") == name:
+                u["tariff"] = "free"
+                u["tariff_until"] = None
+                migrated += 1
+
+        return True, f"{migrated}"
+
     # ---------- Tashqi API kalitlari (boshqalar o'z botiga ulab ishlatadi) ----------
 
     API_KEY_PREFIX = "RasmYaratuvchiRobot_"
@@ -455,6 +479,13 @@ tr:nth-child(even){{background:#151821}}
 
     def list_api_keys(self) -> dict:
         return self.data.get("api_keys", {})
+
+    def find_api_key_by_suffix(self, suffix: str) -> str | None:
+        """Callback_data'da to'liq keyni tashish shart emas (uzun bo'ladi),
+        shuning uchun faqat 6 xonali suffiks orqali topamiz."""
+        prefix = self.API_KEY_PREFIX
+        full = f"{prefix}{suffix}"
+        return full if full in self.data.get("api_keys", {}) else None
 
     def remaining_limit(self, user_id: int) -> int:
         if self.is_unlimited(user_id):

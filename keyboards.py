@@ -37,6 +37,7 @@ def admin_panel() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📢 Habar yuborish (broadcast)", callback_data="admbroadcast")],
         [InlineKeyboardButton(text="🔑 Tarif-kod yaratish", callback_data="admgencode")],
         [InlineKeyboardButton(text="🔐 API key (nomi/limit/kun)", callback_data="admcustomcode")],
+        [InlineKeyboardButton(text="🔌 API kalitlarim", callback_data="admapikeys")],
         [InlineKeyboardButton(text="💳 Tariflar sozlamasi", callback_data="admtariffs")],
         [InlineKeyboardButton(text="🚫 Taqiqlangan so'zlar", callback_data="admwords")],
         [InlineKeyboardButton(text="📡 Kanal sozlamalari", callback_data="admchannels")],
@@ -156,8 +157,38 @@ def tariff_field_kb(name: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📊 Kunlik limit", callback_data=f"tariffeditfield:{name}:daily_limit")],
         [InlineKeyboardButton(text="⭐ Narx (stars)", callback_data=f"tariffeditfield:{name}:price_stars")],
         [InlineKeyboardButton(text="🔗 Referal talabi", callback_data=f"tariffeditfield:{name}:ref_required")],
+        [InlineKeyboardButton(text="🗑 Tarifni o'chirish", callback_data=f"tariffdelete:{name}")],
         [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admtariffs")],
     ])
+
+
+def tariff_delete_confirm_kb(name: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Ha, o'chirish", callback_data=f"tariffdeleteconfirm:{name}")],
+        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"tariffedit:{name}")],
+    ])
+
+
+def api_keys_list_kb(keys: dict) -> InlineKeyboardMarkup:
+    rows = []
+    for full_key, info in keys.items():
+        suffix = full_key.split("_")[-1]  # callback_data qisqa bo'lishi uchun faqat suffiksni ishlatamiz
+        status = "✅" if info.get("active", True) else "🚫"
+        rows.append([InlineKeyboardButton(
+            text=f"{status} {info['name']} ({info['used_today']}/{info['daily_limit']})",
+            callback_data=f"apikeyinfo:{suffix}",
+        )])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admcancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def api_key_detail_kb(full_key: str, active: bool) -> InlineKeyboardMarkup:
+    suffix = full_key.split("_")[-1]
+    rows = []
+    if active:
+        rows.append([InlineKeyboardButton(text="🚫 Bekor qilish", callback_data=f"apikeyrevoke:{suffix}")])
+    rows.append([InlineKeyboardButton(text="🔙 Ro'yxatga qaytish", callback_data="admapikeys")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # ---------- Kanal sozlamalari ----------

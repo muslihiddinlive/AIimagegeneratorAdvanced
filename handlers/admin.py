@@ -9,7 +9,8 @@ from codes import generate_code
 from keyboards import (
     admin_panel, cancel_kb, users_list_kb, user_detail_kb,
     tariff_choice_kb, manage_admins_kb, words_kb, tariffs_kb,
-    tariff_field_kb, channels_kb,
+    tariff_field_kb, channels_kb, tariff_delete_confirm_kb,
+    api_keys_list_kb, api_key_detail_kb,
 )
 from states import (
     GenCode, TariffGrant, TariffEdit, Broadcast, WordsManage,
@@ -331,6 +332,40 @@ async def tariff_edit_value(message: Message, state: FSMContext, bot: Bot):
     await message.answer(f"✅ {data['tariff']}.{data['field']} = {value}", reply_markup=tariffs_kb(store.data["tariffs"]))
 
 
+@router.callback_query(F.data.startswith("tariffdelete:"))
+async def cb_tariff_delete_ask(call: CallbackQuery):
+    if not is_superadmin(call.from_user.id):
+        return await call.answer("Faqat superadmin.", show_alert=True)
+    name = call.data.split(":", 1)[1]
+    if name == "free":
+        return await call.answer("❌ \"Free\" tarifi o'chirilmaydi - u tizimning asosiy tarifi.", show_alert=True)
+    label = store.tariff_label(name)
+    await call.message.edit_text(
+        f"⚠️ Rostdan ham <b>{label}</b> tarifini o'chirmoqchimisiz?\n"
+        f"Bu tarifda turgan userlar avtomatik \"Free\"ga o'tkaziladi.",
+        reply_markup=tariff_delete_confirm_kb(name),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("tariffdeleteconfirm:"))
+async def cb_tariff_delete_confirm(call: CallbackQuery, bot: Bot):
+    if not is_superadmin(call.from_user.id):
+        return await call.answer("Faqat superadmin.", show_alert=True)
+    name = call.data.split(":", 1)[1]
+    label = store.tariff_label(name)
+    ok, info = store.delete_tariff(name)
+    if not ok:
+        reason = "\"Free\" tarifi himoyalangan." if info == "free_protected" else "Bu tarif topilmadi."
+        return await call.answer(reason, show_alert=True)
+    store.schedule_save(bot)
+    await call.message.edit_text(
+        f"🗑 {label} tarifi o'chirildi. Bu tarifda bo'lgan {info} ta user \"Free\"ga o'tkazildi.",
+        reply_markup=tariffs_kb(store.data["tariffs"]),
+    )
+    await call.answer()
+
+
 # ---------- Yangi tarif joriy etish (faqat superadmin) ----------
 
 @router.callback_query(F.data == "admnewtariff")
@@ -413,6 +448,62 @@ async def tariff_create_ref(message: Message, state: FSMContext, bot: Bot):
         f"🔗 Referal talabi: {ref_required}",
         reply_markup=tariffs_kb(store.data["tariffs"]),
     )
+
+
+@router.callback_query(F.data == "admapikeys")
+async def cb_api_keys(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return await call.answer()
+    keys = store.list_api_keys()
+    if not keys:
+        await call.message.edit_text(
+            "🔌 Hozircha hech qanday tashqi API key yaratilmagan.\n\n"
+            "Yaratish uchun: 🔐 API key (nomi/limit/kun) tugmasi.",
+            reply_markup=api_keys_list_kb({}),
+        )
+        return await call.answer()
+    await call.message.edit_text("🔌 Tashqi API kalitlaringiz:", reply_markup=api_keys_list_kb(keys))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("apikeyinfo:"))
+async def cb_api_key_info(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return await call.answer()
+    suffix = call.data.split(":", 1)[1]
+    full_key = store.find_api_key_by_suffix(suffix)
+    info = store.get_api_key(full_key) if full_key else None
+    if not info:
+        return await call.answer("❌ Bu key topilmadi (o'chirilgan bo'lishi mumkin).", show_alert=True)
+
+    status = "✅ Faol" if info.get("active", True) else "🚫 Bekor qilingan"
+    muddat = info["expires_at"] if info.get("expires_at") else "muddatsiz"
+    await call.message.edit_text(
+        f"🔑 <b>{info['name']}</b>\n\n"
+        f"Holati: {status}\n"
+        f"Key: <code>{full_key}</code>\n"
+        f"Bugungi limit: {info['used_today']}/{info['daily_limit']}\n"
+        f"Jami generatsiya: {info.get('total_generated', 0)}\n"
+        f"Yaratilgan: {info.get('created_at', '—')}\n"
+        f"Muddat: {muddat}\n\n"
+        f"Ishlatish: <code>/genapi {full_key} prompt matni</code>",
+        reply_markup=api_key_detail_kb(full_key, info.get("active", True)),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("apikeyrevoke:"))
+async def cb_api_key_revoke(call: CallbackQuery, bot: Bot):
+    if not is_admin(call.from_user.id):
+        return await call.answer()
+    suffix = call.data.split(":", 1)[1]
+    full_key = store.find_api_key_by_suffix(suffix)
+    if not full_key or not store.revoke_api_key(full_key):
+        return await call.answer("❌ Bu key topilmadi.", show_alert=True)
+    store.schedule_save(bot)
+    await call.answer("🚫 Key bekor qilindi.", show_alert=True)
+    keys = store.list_api_keys()
+    await call.message.edit_text("🔌 Tashqi API kalitlaringiz:", reply_markup=api_keys_list_kb(keys))
 
 
 # ---------- Tashqi API key (boshqalar o'z botiga ulaydigan HTTP API kaliti) ----------
