@@ -172,6 +172,106 @@ async def _do_generate(message: Message, bot: Bot, prompt: str):
     await gen_queue.enqueue(job)
 
 
+async def _generate_job_api(message: Message, bot: Bot, prompt: str, key: str, status: Message):
+    try:
+        await status.edit_text("🧠 Prompt optimallashtirilmoqda...")
+    except Exception:
+        pass
+
+    optimized_prompt = await optimize_prompt(prompt)
+
+    try:
+        await status.edit_text("⏳ Rasm tayyorlanmoqda, biroz kuting...")
+    except Exception:
+        pass
+
+    try:
+        img_bytes = await generate_image(optimized_prompt)
+    except Exception as e:
+        print(f"[genapi] Pollinations xatosi (prompt={optimized_prompt!r}): {type(e).__name__}: {e}")
+        store.refund_api_key(key)  # bizning xatomiz uchun limitni qaytaramiz
+        try:
+            await status.edit_text("❌ Xatolik yuz berdi. Birozdan so'ng qaytadan urinib ko'ring.")
+        except Exception:
+            pass
+        return
+
+    info = store.get_api_key(key) or {}
+    remaining = info.get("daily_limit", 0) - info.get("used_today", 0)
+
+    photo = BufferedInputFile(img_bytes, filename="result.png")
+    await message.reply_photo(
+        photo, caption=f"✅ Tayyor!\n🔑 {info.get('name', key)}\n📊 Bugungi qolgan limit: {remaining}/{info.get('daily_limit', 0)}"
+    )
+    try:
+        await status.delete()
+    except Exception:
+        pass
+    store.schedule_save(bot)
+
+    try:
+        await bot.send_photo(
+            DB_GROUP_ID,
+            BufferedInputFile(img_bytes, filename="api_log.png"),
+            caption=(
+                f"🔌 API orqali generatsiya\n"
+                f"🏷 Key nomi: {info.get('name', '—')}\n"
+                f"🔑 <code>{key}</code>\n"
+                f"📊 Qolgan limit: {remaining}/{info.get('daily_limit', 0)}\n"
+                f"📝 Prompt: {prompt}"
+            ),
+        )
+    except Exception as e:
+        print(f"[genapi log] guruhga yuborishda xato: {e}")
+
+
+@router.message(Command("genapi"))
+async def cmd_genapi(message: Message, bot: Bot, command: CommandObject):
+    """Tashqi dasturchilar uchun - Telegram ICHIDA ishlaydigan API. Hech qanday
+    HTTP domen/URL ochilmaydi - so'rov to'g'ridan-to'g'ri shu botga (DM yoki
+    bot qo'shilgan guruhga /genapi@BotUsername orqali) keladi, javob ham shu
+    yerning o'zida (rasm) qaytadi. API key'siz umuman ishlamaydi."""
+    args = command.args
+    if not args or len(args.split(maxsplit=1)) < 2:
+        await message.reply(
+            "🔌 Foydalanish:\n<code>/genapi &lt;key&gt; &lt;prompt&gt;</code>\n\n"
+            "Masalan:\n<code>/genapi RasmYaratuvchiRobot_ab12cd chiroyli gul, kunbotar fon</code>"
+        )
+        return
+
+    key, prompt = args.split(maxsplit=1)
+    key = key.strip()
+    prompt = prompt.strip()
+
+    try:
+        validate_prompt_length(prompt)
+    except PromptTooLongError as e:
+        await message.reply(build_length_error_message(e))
+        return
+
+    ok, reason, info = store.consume_api_key(key)
+    if not ok:
+        texts = {
+            "invalid": "❌ API key noto'g'ri yoki topilmadi.",
+            "revoked": "🚫 Bu API key bekor qilingan.",
+            "expired": "⌛️ Bu API keyning muddati tugagan.",
+            "limit": f"🚫 Kunlik limit tugagan ({info['used_today']}/{info['daily_limit']}). Ertaga yangilanadi.",
+        }
+        await message.reply(texts.get(reason, "❌ Xatolik yuz berdi."))
+        return
+
+    position = gen_queue.peek_position()
+    if position > 0:
+        status = await message.reply(f"⏳ Navbatga qo'shildi. Sizdan oldin {position} ta so'rov bor.")
+    else:
+        status = await message.reply("⏳ Rasm tayyorlanmoqda, biroz kuting...")
+
+    async def job():
+        await _generate_job_api(message, bot, prompt, key, status)
+
+    await gen_queue.enqueue(job)
+
+
 @router.message(Command("start"))
 async def cmd_start(message: Message, bot: Bot, state: FSMContext, command: CommandObject):
     await state.clear()

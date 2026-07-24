@@ -505,15 +505,18 @@ async def custom_code_days(message: Message, state: FSMContext, bot: Bot):
     store.schedule_save(bot)
 
     muddat = f"{days} kunga" if days > 0 else "muddatsiz"
+    bot_info = await bot.get_me()
     await message.answer(
         f"✅ Tashqi API key yaratildi:\n\n"
         f"🏷 Nomi: {data['name']}\n"
         f"📊 Kunlik limit: {data['daily_limit']}\n"
         f"🗓 Muddat: {muddat}\n\n"
         f"🔑 Key:\n<code>{full_key}</code>\n\n"
-        f"Ulash uchun:\n"
-        f"<code>GET https://&lt;sizning-render-domeningiz&gt;/api/generate?key={full_key}&prompt=...</code>\n\n"
-        f"Har bir chaqiruvda yaratilgan rasm shu DB guruhga ham avtomatik tushadi."
+        f"<b>Ulash (hech qanday domen/URL kerak emas — hammasi Telegram ichida):</b>\n"
+        f"Boshqa dasturchi bu botga (yoki bot qo'shilgan guruhga) shu buyruqni yuborsin:\n"
+        f"<code>/genapi {full_key} chiroyli gul, kunbotar fon</code>\n\n"
+        f"Bot javobida rasmni to'g'ridan-to'g'ri qaytaradi. Key noto'g'ri/tugagan bo'lsa "
+        f"— hech narsa generatsiya qilinmaydi. Har bir chaqiruv shu DB guruhga ham log bo'ladi."
     )
 
 
