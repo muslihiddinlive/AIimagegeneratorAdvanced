@@ -45,6 +45,25 @@ class RequestTariff(StatesGroup):
     waiting_message = State()
 
 
+class TariffCreate(StatesGroup):
+    """Superadmin butunlay YANGI tarif joriy etadi (nomi, label, kunlik limit,
+    narx, referal talabi - ketma-ket so'raladi)."""
+    waiting_key = State()
+    waiting_label = State()
+    waiting_daily_limit = State()
+    waiting_price = State()
+    waiting_ref_required = State()
+
+
+class CustomCode(StatesGroup):
+    """"API key" - sotuvga chiqariladigan bir martalik maxsus kod: nomi
+    (ko'rsatiladigan label), kunlik limiti va necha kunga amal qilishi aniq
+    ketma-ket so'raladi, so'ng shu parametrlar bilan 16 xonali kod yaratiladi."""
+    waiting_name = State()
+    waiting_limit = State()
+    waiting_days = State()
+
+
 class UserContact(StatesGroup):
     """Oddiy foydalanuvchi "Adminga murojaat" tugmasi orqali yozadi."""
     waiting_message = State()

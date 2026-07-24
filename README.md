@@ -32,11 +32,37 @@ python main.py
 - Database sifatida Telegram guruh ishlatiladi: butun holat (`bot_state.json`) guruhda pin qilingan xabar sifatida saqlanadi, runtime'da RAM'da keshlanadi
 - Har bir generatsiya (rasm + prompt + user) DB guruhiga log sifatida yuboriladi
 
+## Yangi qo'shilgan imkoniyatlar
+
+- **Multi-worker navbat** — bir vaqtda `GEN_QUEUE_WORKERS` tagacha (default: 10)
+  rasm PARALLEL generatsiya qilinadi. 11-chi so'rov kelsa, avtomatik FIFO
+  navbatga tushadi va birinchi bo'shagan workerga o'tadi. `.env`da
+  `GEN_QUEUE_WORKERS` orqali oshirish/kamaytirish mumkin.
+- **Taqiqlangan so'zlar ro'yxati default bo'sh** — Pollinations.ai o'zining
+  ichki NSFW-moderatsiyasiga tayanamiz. Admin panel orqali (`/admwords`)
+  xohlasa o'zi so'z qo'shishi mumkin, lekin standart holatda hech narsa
+  bloklanmaydi.
+- **Telegram Stars orqali haqiqiy to'lov** — "💳 Tarif sotib olish" endi
+  narxli tariflar uchun to'g'ridan-to'g'ri Stars invoice yuboradi
+  (`currency=XTR`). To'lov muvaffaqiyatli bo'lsa, tarif userga AVTOMATIK
+  30 kunga beriladi, admin/superadminlarga va DB guruhiga xabar ketadi.
+  ⚠️ **Muhim:** Telegram Stars har doim botni @BotFather'da RO'YXATDAN
+  O'TKAZGAN akkauntning Stars balansiga tushadi — bu Telegram platformasi
+  qoidasi, bot kodi orqali boshqa "superadmin"ga yo'naltirib bo'lmaydi.
+  Agar bir nechta superadmin bo'lsa, pul faqat bot egasiga tushadi.
+- **Superadmin yangi tarif joriy eta oladi** — Admin panel → 💳 Tariflar
+  sozlamasi → ➕ Yangi tarif yaratish: kalit, label, kunlik limit, narx
+  (Stars), referal talabini ketma-ket kiritadi.
+- **"API key" (maxsus sotuv kodi)** — Admin panel → 🔐 API key: nomi,
+  kunlik limiti va necha kunga amal qilishini aniq kiritib, 16 xonali
+  bir martalik kod generatsiya qiladi (umumiy tariflar ro'yxatida
+  ko'rinmaydi, faqat shu kodni ishlatgan userga tegishli).
+
 ## Muhim eslatmalar (halol aytilishi kerak bo'lgan cheklovlar)
 
-1. **"am" taqiqlangan so'zi** — juda qisqa va ko'p so'zning qismi bo'lgani uchun
-   yolg'on signal berish ehtimoli bor. Kod butun-so'z tekshiruvi qiladi
-   (masalan "Amerika" ichidagi "am" ushlanmaydi), lekin baribir ehtiyot bo'ling.
+1. **Pollinations.ai'ning o'z NSFW-filtri** endi yagona himoya qatlami —
+   bot darajasidagi so'z-filtri o'chirilgan (yuqoriga qarang). Agar
+   Pollinations filtri o'zgarsa/zaiflashsa, bot buni bilmaydi.
 2. **Premium custom emoji reaksiya** — Telegram bot API orqali `set_message_reaction`
    custom emoji bilan har doim ishlashi kafolatlanmagan; bu chat sozlamalariga
    (`available_reactions`) bog'liq. Ishlamasa, oddiy emoji reaksiyaga fallback qiladi.

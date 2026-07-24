@@ -2,10 +2,12 @@ import asyncio
 import urllib.parse
 import aiohttp
 
-from config import POLLINATIONS_URL
+from config import POLLINATIONS_URL, GEN_QUEUE_WORKERS
 
-# bir vaqtda ketadigan parallel so'rovlar sonini cheklaymiz
-_semaphore = asyncio.Semaphore(5)
+# bir vaqtda ketadigan parallel so'rovlar sonini cheklaymiz - navbat
+# (queue_worker.py) workerlari bilan bir xil songa moslangan, shunda ikkalasi
+# ham bir-biriga to'siq bo'lmaydi
+_semaphore = asyncio.Semaphore(GEN_QUEUE_WORKERS)
 
 
 async def generate_image(prompt: str, width: int = 1024, height: int = 1024) -> bytes:

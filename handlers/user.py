@@ -1,9 +1,12 @@
 from aiogram import Router, F, Bot
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message, BufferedInputFile, CallbackQuery, ReplyKeyboardRemove
+from aiogram.types import (
+    Message, BufferedInputFile, CallbackQuery, ReplyKeyboardRemove,
+    PreCheckoutQuery, LabeledPrice,
+)
 from aiogram.fsm.context import FSMContext
 
-from config import DB_GROUP_ID, SUPERADMIN_IDS, TARIFF_LABELS, TARIFF_ORDER
+from config import DB_GROUP_ID, SUPERADMIN_IDS, STARS_CURRENCY
 from state import store, UNLIMITED
 from moderation import contains_banned
 from pollinations import generate_image
@@ -180,7 +183,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext, command: Comm
             referrer_id = int(command.args[3:])
             ok, upgraded = store.register_referral(referrer_id, message.from_user.id)
             if ok and upgraded:
-                label = TARIFF_LABELS.get(upgraded, upgraded)
+                label = store.tariff_label(upgraded)
                 try:
                     await bot.send_message(
                         referrer_id,
@@ -217,7 +220,7 @@ async def btn_generate(message: Message, state: FSMContext):
 async def btn_limit(message: Message, state: FSMContext):
     await state.clear()
     u = store.get_user(message.from_user.id, message.from_user.username, message.from_user.full_name)
-    tariff = TARIFF_LABELS.get(u.get("tariff", "free"), "Free")
+    tariff = store.tariff_label(u.get("tariff", "free"))
     await message.answer(f"💳 Tarifingiz: {tariff}\n📊 Bugun {_left_text(message.from_user.id)} ta rasm yaratish imkoniyati qoldi.")
 
 
@@ -294,6 +297,15 @@ async def cb_check_bonus(call: CallbackQuery, bot: Bot):
     await call.answer()
 
 
+@router.callback_query(F.data == "closemsg")
+async def cb_close_msg(call: CallbackQuery):
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    await call.answer()
+
+
 @router.callback_query(F.data == "checkmandatory")
 async def cb_check_mandatory(call: CallbackQuery, bot: Bot):
     mandatory = store.data.get("mandatory_channel")
@@ -349,7 +361,7 @@ async def cb_ustart(call: CallbackQuery, state: FSMContext, bot: Bot):
 
     elif action == "limit":
         u = store.get_user(call.from_user.id, call.from_user.username, call.from_user.full_name)
-        tariff = TARIFF_LABELS.get(u.get("tariff", "free"), "Free")
+        tariff = store.tariff_label(u.get("tariff", "free"))
         await call.message.answer(f"💳 Tarifingiz: {tariff}\n📊 Bugun {_left_text(call.from_user.id)} ta rasm yaratish imkoniyati qoldi.")
 
     elif action == "code":
@@ -384,11 +396,11 @@ async def cb_ustart(call: CallbackQuery, state: FSMContext, bot: Bot):
     elif action == "tariff":
         t = store.data["tariffs"]
         lines = ["💳 Mavjud tariflar:\n"]
-        for name in TARIFF_ORDER:
+        for name in store.tariff_order():
             if name == "free":
                 continue
             info = t[name]
-            label = TARIFF_LABELS.get(name, name)
+            label = store.tariff_label(name)
             lines.append(
                 f"{label}: kuniga {info['daily_limit']} ta rasm — {info['price_stars']} ⭐/oy "
                 f"yoki {info['ref_required']} ta referal"
@@ -426,7 +438,7 @@ async def cb_ustart(call: CallbackQuery, state: FSMContext, bot: Bot):
 @router.callback_query(F.data.startswith("tariffreq:"))
 async def cb_tariff_request(call: CallbackQuery, bot: Bot):
     tariff = call.data.split(":", 1)[1]
-    label = TARIFF_LABELS.get(tariff, tariff)
+    label = store.tariff_label(tariff)
     info = store.data["tariffs"].get(tariff, {})
     user = call.from_user
     text = (
@@ -448,16 +460,87 @@ async def cb_tariff_request(call: CallbackQuery, bot: Bot):
     await call.answer()
 
 
+@router.callback_query(F.data.startswith("tariffbuy:"))
+async def cb_tariff_buy(call: CallbackQuery, bot: Bot):
+    """Telegram Stars orqali haqiqiy to'lov: invoice yuboriladi, foydalanuvchi
+    to'lasa Telegram o'zi Stars'ni botni ro'yxatdan o'tkazgan akkauntning
+    balansiga o'tkazadi (bu bot kodi ichidan boshqarilmaydigan, Telegram
+    platforma darajasidagi jarayon)."""
+    tariff = call.data.split(":", 1)[1]
+    info = store.data["tariffs"].get(tariff)
+    if not info or info.get("price_stars", 0) <= 0:
+        await call.answer("Bu tarif Stars orqali sotib olinmaydi.", show_alert=True)
+        return
+    label = store.tariff_label(tariff)
+    price = info["price_stars"]
+    await call.answer()
+    await bot.send_invoice(
+        chat_id=call.from_user.id,
+        title=f"{label} tarifi",
+        description=f"{label} — kuniga {info['daily_limit']} ta rasm generatsiya qilish imkoniyati.",
+        payload=f"tariff:{tariff}",
+        currency=STARS_CURRENCY,
+        prices=[LabeledPrice(label=label, amount=price)],
+    )
+
+
+@router.pre_checkout_query()
+async def process_pre_checkout(pre_checkout_q: PreCheckoutQuery):
+    # Stars to'lovlarida amalda tekshirish shart emas (limit tugab qolish kabi
+    # holat yo'q), shuning uchun har doim tasdiqlaymiz.
+    await pre_checkout_q.answer(ok=True)
+
+
+@router.message(F.successful_payment)
+async def process_successful_payment(message: Message, bot: Bot):
+    payment = message.successful_payment
+    payload = payment.invoice_payload  # "tariff:<name>"
+    user_id = message.from_user.id
+
+    try:
+        _, tariff = payload.split(":", 1)
+    except ValueError:
+        tariff = None
+
+    if tariff and tariff in store.data.get("tariffs", {}):
+        store.grant_tariff(user_id, tariff, days=30)
+        store.schedule_save(bot)
+        label = store.tariff_label(tariff)
+        await message.answer(
+            f"✅ To'lov qabul qilindi! Sizga {label} tarifi 30 kunga berildi.\n"
+            f"⭐ To'langan: {payment.total_amount} Stars."
+        )
+    else:
+        await message.answer(f"✅ To'lov qabul qilindi (⭐ {payment.total_amount}), lekin tarif aniqlanmadi — admin bilan bog'laning.")
+
+    text = (
+        f"⭐ Yangi Stars to'lovi!\n"
+        f"👤 {message.from_user.full_name} (@{message.from_user.username or '—'}) [id: {user_id}]\n"
+        f"💰 Miqdor: {payment.total_amount} {payment.currency}\n"
+        f"🎫 Tarif: {tariff or '—'}\n"
+        f"🧾 Telegram Charge ID: {payment.telegram_payment_charge_id}"
+    )
+    for admin_id in SUPERADMIN_IDS + store.data.get("admins", []):
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception:
+            pass
+    try:
+        await bot.send_message(DB_GROUP_ID, text)
+    except Exception:
+        pass
+
+
 @router.message(F.text == "💳 Tarif sotib olish")
 async def btn_tariff(message: Message, state: FSMContext):
     await state.clear()
     t = store.data["tariffs"]
     lines = ["💳 Mavjud tariflar:\n"]
-    for name in TARIFF_ORDER:
+    for name in store.tariff_order():
         if name == "free":
             continue
         info = t[name]
-        label = TARIFF_LABELS.get(name, name)
+        label = store.tariff_label(name)
         lines.append(
             f"{label}: kuniga {info['daily_limit']} ta rasm — {info['price_stars']} ⭐/oy "
             f"yoki {info['ref_required']} ta referal"

@@ -58,7 +58,9 @@ DEFAULT_DAILY_LIMIT = 2
 
 # Tarif tizimi: kunlik limit, narx (Telegram Stars), qancha referal kerakligi va
 # kim bera olishi. Superadmin bularni admin panel (inline tugmalar) orqali
-# istagancha o'zgartira oladi (bazadagi nusxasi o'zgaradi, shu yerdagi qiymat - default).
+# istagancha o'zgartira oladi va YANGI tarif ham qo'sha oladi (bazadagi
+# `store.data["tariffs"]`/`["tariff_order"]`/`["tariff_labels"]` haqiqiy manba
+# hisoblanadi; bu yerdagi qiymatlar faqat BIRINCHI ishga tushirishdagi default).
 DEFAULT_TARIFFS = {
     "free": {"daily_limit": 2, "price_stars": 0, "ref_required": 0, "grantable_by": "auto"},
     "pro":  {"daily_limit": 5, "price_stars": 15, "ref_required": 5, "grantable_by": "admin"},
@@ -67,6 +69,14 @@ DEFAULT_TARIFFS = {
 }
 TARIFF_ORDER = ["free", "pro", "plus", "vip"]
 TARIFF_LABELS = {"free": "🆓 Free", "pro": "⭐ Pro", "plus": "💎 Plus", "vip": "👑 VIP"}
+
+# ============================
+# Rasm generatsiya navbati (multi-worker)
+# ============================
+# Bir vaqtda nechta generatsiya PARALLEL bajarilishi mumkin. Shu sondan ortiq
+# so'rov kelsa, qolganlari navbatda kutadi (FIFO). Pollinations.ai semaphore'i
+# ham shu songa moslanadi.
+GEN_QUEUE_WORKERS = int(os.getenv("GEN_QUEUE_WORKERS", "10"))
 
 # Bonus kanalga a'zo bo'lgan har bir userga bir martalik, doimiy +N limit
 BONUS_LIMIT_AMOUNT = 2
@@ -79,23 +89,20 @@ STATE_FILENAME = "bot_state.html"
 # (bir nechta o'zgarish ketma-ket kelsa, bittasiga birlashtirib saqlaydi)
 SAVE_DEBOUNCE_SECONDS = 2
 
-# Taqiqlangan so'zlar (butun so'z sifatida tekshiriladi, substring emas).
-# "am" kabi juda qisqa/keng tarqalgan so'zlar yolg'on signal berishi mumkin -
-# xohlasang keyinchalik bu ro'yxatni kengaytirish/torayтirish kerak bo'ladi.
-BANNED_WORDS = [
-    "18+",
-    "porn",
-    "sex",
-    "xxx",
-    "am",
-    "jinsiy aloqa",
-    "jinsiy azo",
-    "yalang'och",
-    "yalangoch",
-    "kiyimsiz",
-]
+# Taqiqlangan so'zlar ro'yxati ATAYLAB BO'SH: Pollinations.ai o'zining
+# ichki moderatsiyasiga (NSFW filtri) tayanamiz, shuning uchun bot darajasida
+# qo'shimcha so'z-filtri qo'llanilmaydi. Admin panel orqali xohlasa istalgan
+# vaqt o'zi so'z qo'sha oladi (/admwords), lekin default bo'sh.
+BANNED_WORDS: list[str] = []
 
 POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}"
+
+# Telegram Stars orqali to'lov: currency har doim "XTR", provider_token kerak
+# emas (bo'sh string). Stars avtomatik bot egasining (@BotFather'da botni
+# ro'yxatdan o'tkazgan akkauntning) Stars balansiga tushadi - buni bot kodi
+# ichidan boshqa foydalanuvchiga "yo'naltirib" bo'lmaydi, bu Telegram
+# platformasining o'zi belgilagan qoida.
+STARS_CURRENCY = "XTR"
 
 # ============================
 # Groq preprocessing sozlamalari

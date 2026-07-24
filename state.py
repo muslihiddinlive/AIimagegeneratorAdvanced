@@ -26,7 +26,7 @@ from aiogram.types import BufferedInputFile
 
 from config import (
     DB_GROUP_ID, STATE_FILENAME, SUPERADMIN_IDS, SAVE_DEBOUNCE_SECONDS,
-    DEFAULT_TARIFFS, TARIFF_ORDER, BANNED_WORDS, BONUS_LIMIT_AMOUNT,
+    DEFAULT_TARIFFS, TARIFF_ORDER, TARIFF_LABELS, BANNED_WORDS, BONUS_LIMIT_AMOUNT,
 )
 
 UNLIMITED = 10 ** 9  # superadmin/admin uchun "cheksiz" limit ko'rsatkichi
@@ -35,6 +35,8 @@ _DEFAULT_STATE = {
     "users": {},            # str(user_id) -> user dict
     "admins": [],           # superadmin belgilagan qo'shimcha adminlar
     "tariffs": DEFAULT_TARIFFS,   # superadmin o'zgartira oladigan tarif sozlamalari
+    "tariff_order": list(TARIFF_ORDER),   # superadmin YANGI tarif qo'shsa shu yerga qo'shiladi
+    "tariff_labels": dict(TARIFF_LABELS),  # tarif nomi -> ko'rsatiladigan label (emoji bilan)
     "codes": {},             # code -> {"tariff", "days", "used", "used_by"}
     "banned_words": list(BANNED_WORDS),  # to'liq runtime-tahrirlanadigan (add/remove) ro'yxat
     "image_cache": [],       # admin/superadmin DB ga tashlagan rasmlar: {file_id, by, at, caption}
@@ -333,6 +335,46 @@ tr:nth-child(even){{background:#151821}}
             t = DEFAULT_TARIFFS.get(tariff_name, DEFAULT_TARIFFS["free"])
         return t["daily_limit"]
 
+    # ---------- tariflar (dinamik: superadmin yangi tarif qo'sha oladi) ----------
+
+    def tariff_order(self, include_hidden: bool = False) -> list[str]:
+        """Ko'rsatish tartibidagi tarif nomlari ro'yxati. `include_hidden=False`
+        bo'lsa, bir martalik "API key" kodlar uchun yaratilgan yashirin
+        tariflar (masalan sotuvga chiqarilmagan maxsus limit-paketlar)
+        ro'yxatga chiqmaydi."""
+        order = self.data.get("tariff_order", list(TARIFF_ORDER))
+        if include_hidden:
+            return order
+        tariffs = self.data.get("tariffs", {})
+        return [name for name in order if not tariffs.get(name, {}).get("hidden")]
+
+    def tariff_label(self, name: str) -> str:
+        return self.data.get("tariff_labels", {}).get(name, name)
+
+    def add_tariff(
+        self, name: str, label: str, daily_limit: int, price_stars: int = 0,
+        ref_required: int = 0, grantable_by: str = "superadmin", hidden: bool = False,
+    ) -> bool:
+        """Superadmin yangi tarif joriy etadi (yoki mavjud "API key" uchun
+        yashirin bir martalik tarif yaratadi). `name` ichki kalit (masalan
+        "gold" yoki "key_a1b2c3"), `label` foydalanuvchiga ko'rsatiladigan
+        chiroyli nom (masalan "🥇 Gold" yoki admin bergan nom)."""
+        tariffs = self.data.setdefault("tariffs", {})
+        if name in tariffs:
+            return False
+        tariffs[name] = {
+            "daily_limit": daily_limit,
+            "price_stars": price_stars,
+            "ref_required": ref_required,
+            "grantable_by": grantable_by,
+            "hidden": hidden,
+        }
+        self.data.setdefault("tariff_labels", {})[name] = label
+        order = self.data.setdefault("tariff_order", list(TARIFF_ORDER))
+        if name not in order:
+            order.append(name)
+        return True
+
     def remaining_limit(self, user_id: int) -> int:
         if self.is_unlimited(user_id):
             return UNLIMITED
@@ -392,10 +434,11 @@ tr:nth-child(even){{background:#151821}}
         referrer["ref_count"] = referrer.get("ref_count", 0) + 1
 
         upgraded_to = None
-        current_idx = TARIFF_ORDER.index(referrer.get("tariff", "free")) if referrer.get("tariff", "free") in TARIFF_ORDER else 0
-        for name in reversed(TARIFF_ORDER):
+        order = self.tariff_order(include_hidden=True)
+        current_idx = order.index(referrer.get("tariff", "free")) if referrer.get("tariff", "free") in order else 0
+        for name in reversed(order):
             req = self.data.get("tariffs", {}).get(name, {}).get("ref_required", 0)
-            if req and referrer["ref_count"] >= req and TARIFF_ORDER.index(name) > current_idx:
+            if req and referrer["ref_count"] >= req and order.index(name) > current_idx:
                 referrer["tariff"] = name
                 referrer["tariff_until"] = None
                 upgraded_to = name

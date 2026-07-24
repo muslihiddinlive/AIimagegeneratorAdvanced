@@ -2,7 +2,9 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
-from config import SUPERADMIN_IDS, TARIFF_ORDER, TARIFF_LABELS
+import secrets
+
+from config import SUPERADMIN_IDS
 from state import store, UNLIMITED
 from codes import generate_code
 from keyboards import (
@@ -12,7 +14,7 @@ from keyboards import (
 )
 from states import (
     GenCode, TariffGrant, TariffEdit, Broadcast, WordsManage,
-    SendToUser, AdminAdd, ChannelSetup,
+    SendToUser, AdminAdd, ChannelSetup, TariffCreate, CustomCode,
 )
 
 router = Router()
@@ -29,10 +31,11 @@ def is_superadmin(user_id: int) -> bool:
 
 
 def allowed_grant_tariffs(caller_id: int) -> list[str]:
+    order = store.tariff_order(include_hidden=True)
     if is_superadmin(caller_id):
-        return TARIFF_ORDER
+        return order
     if is_admin(caller_id):
-        return [name for name in TARIFF_ORDER
+        return [name for name in order
                 if store.data.get("tariffs", {}).get(name, {}).get("grantable_by") == "admin"]
     return []
 
@@ -86,7 +89,7 @@ async def _render_user_detail(call: CallbackQuery, uid: str):
         return await call.message.edit_text("Topilmadi.", reply_markup=cancel_kb())
     left = _fmt_limit(int(uid))
     tariff = u.get("tariff", "free")
-    tariff_text = TARIFF_LABELS.get(tariff, tariff)
+    tariff_text = store.tariff_label(tariff)
     tariff_text += f" ({u['tariff_until']} gacha)" if u.get("tariff_until") else " (doimiy)"
     ban_text = "ha" if u.get("banned") else "yo'q"
     display_name = (f"@{u['username']}" if u.get("username") else u.get("full_name")) or f"id{uid}"
@@ -207,7 +210,7 @@ async def tariff_grant_days(message: Message, state: FSMContext, bot: Bot):
     await state.clear()
     store.grant_tariff(data["target_uid"], data["tariff"], days if days > 0 else None)
     store.schedule_save(bot)
-    label = TARIFF_LABELS.get(data["tariff"], data["tariff"])
+    label = store.tariff_label(data["tariff"])
     muddat = f"{days} kunga" if days > 0 else "muddatsiz"
     await message.answer(f"✅ User {data['target_uid']} ga {label} tarifi berildi ({muddat}).")
     try:
@@ -279,7 +282,7 @@ async def gencode_days(message: Message, state: FSMContext, bot: Bot):
     code = generate_code()
     store.data["codes"][code] = {"tariff": data["tariff"], "days": days if days > 0 else None, "used": False}
     store.schedule_save(bot)
-    label = TARIFF_LABELS.get(data["tariff"], data["tariff"])
+    label = store.tariff_label(data["tariff"])
     muddat = f"{days} kunga" if days > 0 else "muddatsiz"
     await message.answer(f"✅ Kod yaratildi:\n\n<code>{code}</code>\n\n{label} tarifi, {muddat}.")
 
@@ -299,7 +302,7 @@ async def cb_tariff_edit(call: CallbackQuery):
     if not is_superadmin(call.from_user.id):
         return await call.answer("Faqat superadmin tarif sozlamalarini o'zgartira oladi.", show_alert=True)
     name = call.data.split(":", 1)[1]
-    label = TARIFF_LABELS.get(name, name)
+    label = store.tariff_label(name)
     await call.message.edit_text(f"{label} - qaysi qiymatni o'zgartiramiz?", reply_markup=tariff_field_kb(name))
     await call.answer()
 
@@ -327,6 +330,162 @@ async def tariff_edit_value(message: Message, state: FSMContext, bot: Bot):
     store.data["tariffs"][data["tariff"]][data["field"]] = value
     store.schedule_save(bot)
     await message.answer(f"✅ {data['tariff']}.{data['field']} = {value}", reply_markup=tariffs_kb(store.data["tariffs"]))
+
+
+# ---------- Yangi tarif joriy etish (faqat superadmin) ----------
+
+@router.callback_query(F.data == "admnewtariff")
+async def cb_new_tariff_start(call: CallbackQuery, state: FSMContext):
+    if not is_superadmin(call.from_user.id):
+        return await call.answer("Faqat superadmin uchun.", show_alert=True)
+    await state.set_state(TariffCreate.waiting_key)
+    await call.message.answer(
+        "🆕 Yangi tarif yaratish.\n\n"
+        "1/5 — Ichki kalit nomini yuboring (faqat lotin harflar/raqam, bo'shliqsiz, "
+        "masalan: <code>gold</code>):",
+        reply_markup=cancel_kb(),
+    )
+    await call.answer()
+
+
+@router.message(TariffCreate.waiting_key)
+async def tariff_create_key(message: Message, state: FSMContext):
+    key = message.text.strip().lower()
+    if not key.isalnum():
+        return await message.answer("❌ Faqat lotin harf/raqamlardan iborat bo'lsin (bo'shliq, belgilarsiz).")
+    if key in store.data.get("tariffs", {}):
+        return await message.answer("❌ Bu nomli tarif allaqachon bor. Boshqa nom kiriting.")
+    await state.update_data(key=key)
+    await state.set_state(TariffCreate.waiting_label)
+    await message.answer("2/5 — Foydalanuvchiga ko'rinadigan label kiriting (masalan: <code>🥇 Gold</code>):")
+
+
+@router.message(TariffCreate.waiting_label)
+async def tariff_create_label(message: Message, state: FSMContext):
+    await state.update_data(label=message.text.strip())
+    await state.set_state(TariffCreate.waiting_daily_limit)
+    await message.answer("3/5 — Kunlik limit (nechta rasm)? Raqam kiriting:")
+
+
+@router.message(TariffCreate.waiting_daily_limit)
+async def tariff_create_limit(message: Message, state: FSMContext):
+    try:
+        limit = int(message.text.strip())
+    except ValueError:
+        return await message.answer("❌ Raqam kiriting.")
+    await state.update_data(daily_limit=limit)
+    await state.set_state(TariffCreate.waiting_price)
+    await message.answer("4/5 — Narxi (Stars, oyiga)? 0 = sotuvda emas (faqat admin bera oladi):")
+
+
+@router.message(TariffCreate.waiting_price)
+async def tariff_create_price(message: Message, state: FSMContext):
+    try:
+        price = int(message.text.strip())
+    except ValueError:
+        return await message.answer("❌ Raqam kiriting.")
+    await state.update_data(price_stars=price)
+    await state.set_state(TariffCreate.waiting_ref_required)
+    await message.answer("5/5 — Nechta referal orqali avtomatik berilsin? 0 = referal orqali berilmaydi:")
+
+
+@router.message(TariffCreate.waiting_ref_required)
+async def tariff_create_ref(message: Message, state: FSMContext, bot: Bot):
+    try:
+        ref_required = int(message.text.strip())
+    except ValueError:
+        return await message.answer("❌ Raqam kiriting.")
+    data = await state.get_data()
+    await state.clear()
+
+    ok = store.add_tariff(
+        name=data["key"], label=data["label"], daily_limit=data["daily_limit"],
+        price_stars=data["price_stars"], ref_required=ref_required,
+        grantable_by="superadmin",
+    )
+    if not ok:
+        await message.answer("❌ Bu nomli tarif allaqachon mavjud edi, hech narsa yaratilmadi.")
+        return
+    store.schedule_save(bot)
+    await message.answer(
+        f"✅ Yangi tarif yaratildi: {data['label']}\n"
+        f"📊 Kunlik limit: {data['daily_limit']}\n"
+        f"⭐ Narx: {data['price_stars']} Stars/oy\n"
+        f"🔗 Referal talabi: {ref_required}",
+        reply_markup=tariffs_kb(store.data["tariffs"]),
+    )
+
+
+# ---------- "API key" - nomi/limit/kuni aniq maxsus kod (faqat admin/superadmin) ----------
+
+@router.callback_query(F.data == "admcustomcode")
+async def cb_custom_code_start(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return await call.answer()
+    await state.set_state(CustomCode.waiting_name)
+    await call.message.answer(
+        "🔐 API key (maxsus kod) yaratish.\n\n"
+        "1/3 — Kalit nomini kiriting (foydalanuvchiga ko'rinadi, masalan: "
+        "<code>Sherzod uchun VIP</code>):",
+        reply_markup=cancel_kb(),
+    )
+    await call.answer()
+
+
+@router.message(CustomCode.waiting_name)
+async def custom_code_name(message: Message, state: FSMContext):
+    name = message.text.strip()
+    if not name:
+        return await message.answer("❌ Bo'sh bo'lmasin, nom kiriting.")
+    await state.update_data(name=name)
+    await state.set_state(CustomCode.waiting_limit)
+    await message.answer("2/3 — Kuniga qancha limit bersin? Raqam kiriting:")
+
+
+@router.message(CustomCode.waiting_limit)
+async def custom_code_limit(message: Message, state: FSMContext):
+    try:
+        limit = int(message.text.strip())
+    except ValueError:
+        return await message.answer("❌ Raqam kiriting.")
+    await state.update_data(daily_limit=limit)
+    await state.set_state(CustomCode.waiting_days)
+    await message.answer("3/3 — Necha kunga amal qilsin? (0 = muddatsiz):")
+
+
+@router.message(CustomCode.waiting_days)
+async def custom_code_days(message: Message, state: FSMContext, bot: Bot):
+    try:
+        days = int(message.text.strip())
+    except ValueError:
+        return await message.answer("❌ Raqam kiriting (0 = muddatsiz).")
+    data = await state.get_data()
+    await state.clear()
+
+    # Har bir "API key" o'ziga xos, yashirin (tariflar ro'yxatida ko'rinmaydigan)
+    # bir martalik tarif sifatida saqlanadi - shu orqali mavjud kod/grant
+    # tizimidan foydalaniladi, lekin sotuv ro'yxatida chiqmaydi.
+    tariff_key = f"key_{secrets.token_hex(4)}"
+    store.add_tariff(
+        name=tariff_key, label=data["name"], daily_limit=data["daily_limit"],
+        price_stars=0, ref_required=0, grantable_by="admin", hidden=True,
+    )
+    code = generate_code()
+    store.data["codes"][code] = {
+        "tariff": tariff_key, "days": days if days > 0 else None, "used": False,
+    }
+    store.schedule_save(bot)
+
+    muddat = f"{days} kunga" if days > 0 else "muddatsiz"
+    await message.answer(
+        f"✅ API key yaratildi:\n\n"
+        f"🏷 Nomi: {data['name']}\n"
+        f"📊 Kunlik limit: {data['daily_limit']}\n"
+        f"🗓 Muddat: {muddat}\n\n"
+        f"🔑 Kod:\n<code>{code}</code>\n\n"
+        f"Bu kodni faqat sotib olgan userga bering — u botga shu kodni yuborsa, "
+        f"limit avtomatik ishga tushadi."
+    )
 
 
 # ---------- Taqiqlangan so'zlar (to'liq inline) ----------

@@ -36,6 +36,7 @@ def admin_panel() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admusers")],
         [InlineKeyboardButton(text="📢 Habar yuborish (broadcast)", callback_data="admbroadcast")],
         [InlineKeyboardButton(text="🔑 Tarif-kod yaratish", callback_data="admgencode")],
+        [InlineKeyboardButton(text="🔐 API key (nomi/limit/kun)", callback_data="admcustomcode")],
         [InlineKeyboardButton(text="💳 Tariflar sozlamasi", callback_data="admtariffs")],
         [InlineKeyboardButton(text="🚫 Taqiqlangan so'zlar", callback_data="admwords")],
         [InlineKeyboardButton(text="📡 Kanal sozlamalari", callback_data="admchannels")],
@@ -81,10 +82,10 @@ def user_detail_kb(uid: str) -> InlineKeyboardMarkup:
 
 
 def tariff_choice_kb(callback_prefix: str, tariffs: list, uid: str = "") -> InlineKeyboardMarkup:
-    from config import TARIFF_LABELS
+    from state import store
     suffix = f":{uid}" if uid else ""
     rows = [
-        [InlineKeyboardButton(text=TARIFF_LABELS.get(t, t), callback_data=f"{callback_prefix}:{t}{suffix}")]
+        [InlineKeyboardButton(text=store.tariff_label(t), callback_data=f"{callback_prefix}:{t}{suffix}")]
         for t in tariffs
     ]
     rows.append([InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admcancel")])
@@ -99,11 +100,27 @@ def manage_admins_kb(admins: list) -> InlineKeyboardMarkup:
 
 
 def tariff_purchase_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⭐ Pro so'rash", callback_data="tariffreq:pro")],
-        [InlineKeyboardButton(text="💎 Plus so'rash", callback_data="tariffreq:plus")],
-        [InlineKeyboardButton(text="👑 VIP so'rash", callback_data="tariffreq:vip")],
-    ])
+    """Har bir pullik tarif uchun to'g'ridan-to'g'ri Telegram Stars orqali
+    sotib olish tugmasi (⭐ narxli bo'lsa) + admin bilan bog'lanish (referal/
+    savol uchun, narxsiz bo'lsa)."""
+    from state import store
+    rows = []
+    for name in store.tariff_order():
+        if name == "free":
+            continue
+        t = store.data["tariffs"].get(name, {})
+        label = store.tariff_label(name)
+        price = t.get("price_stars", 0)
+        if price > 0:
+            rows.append([InlineKeyboardButton(
+                text=f"💫 {label} — {price} ⭐ (sotib olish)", callback_data=f"tariffbuy:{name}",
+            )])
+        else:
+            rows.append([InlineKeyboardButton(
+                text=f"{label} so'rash", callback_data=f"tariffreq:{name}",
+            )])
+    rows.append([InlineKeyboardButton(text="❌ Yopish", callback_data="closemsg")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # ---------- Taqiqlangan so'zlar (to'liq inline boshqaruv) ----------
@@ -120,15 +137,16 @@ def words_kb(words: list) -> InlineKeyboardMarkup:
 # ---------- Tariflar - inline tahrirlash ----------
 
 def tariffs_kb(tariffs: dict) -> InlineKeyboardMarkup:
-    from config import TARIFF_LABELS, TARIFF_ORDER
+    from state import store
     rows = []
-    for name in TARIFF_ORDER:
+    for name in store.tariff_order():
         t = tariffs.get(name, {})
-        label = TARIFF_LABELS.get(name, name)
+        label = store.tariff_label(name)
         rows.append([InlineKeyboardButton(
             text=f"✏️ {label}: {t.get('daily_limit')}/kun, {t.get('price_stars')}⭐, {t.get('ref_required')}ref",
             callback_data=f"tariffedit:{name}",
         )])
+    rows.append([InlineKeyboardButton(text="➕ Yangi tarif yaratish", callback_data="admnewtariff")])
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admcancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
