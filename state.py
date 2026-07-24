@@ -20,6 +20,8 @@ import asyncio
 import html as html_lib
 import json
 import io
+import secrets
+import string
 from datetime import date, timedelta
 from aiogram import Bot
 from aiogram.types import BufferedInputFile
@@ -38,6 +40,8 @@ _DEFAULT_STATE = {
     "tariff_order": list(TARIFF_ORDER),   # superadmin YANGI tarif qo'shsa shu yerga qo'shiladi
     "tariff_labels": dict(TARIFF_LABELS),  # tarif nomi -> ko'rsatiladigan label (emoji bilan)
     "codes": {},             # code -> {"tariff", "days", "used", "used_by"}
+    "api_keys": {},          # full_key -> {"name","daily_limit","used_today","last_reset",
+                             #              "total_generated","created_at","expires_at","active"}
     "banned_words": list(BANNED_WORDS),  # to'liq runtime-tahrirlanadigan (add/remove) ro'yxat
     "image_cache": [],       # admin/superadmin DB ga tashlagan rasmlar: {file_id, by, at, caption}
     "mandatory_channel": None,  # username (@ siz), bo'lmasa None
@@ -374,6 +378,83 @@ tr:nth-child(even){{background:#151821}}
         if name not in order:
             order.append(name)
         return True
+
+    # ---------- Tashqi API kalitlari (boshqalar o'z botiga ulab ishlatadi) ----------
+
+    API_KEY_PREFIX = "RasmYaratuvchiRobot_"
+    _API_KEY_SUFFIX_CHARS = string.ascii_letters + string.digits
+
+    def _random_api_suffix(self) -> str:
+        return "".join(secrets.choice(self._API_KEY_SUFFIX_CHARS) for _ in range(6))
+
+    def generate_api_key(self, name: str, daily_limit: int, days: int = 0) -> str:
+        """Tashqi dasturchiga beriladigan API kalit yaratadi. Format:
+        RasmYaratuvchiRobot_XXXXXX (XXXXXX - 6 xonali harf+raqam, HAR DOIM
+        unikal). `days=0` bo'lsa muddatsiz."""
+        keys = self.data.setdefault("api_keys", {})
+        while True:
+            full_key = f"{self.API_KEY_PREFIX}{self._random_api_suffix()}"
+            if full_key not in keys:
+                break
+        expires_at = str(date.today() + timedelta(days=days)) if days else None
+        keys[full_key] = {
+            "name": name,
+            "daily_limit": daily_limit,
+            "used_today": 0,
+            "last_reset": str(date.today()),
+            "total_generated": 0,
+            "created_at": str(date.today()),
+            "expires_at": expires_at,
+            "active": True,
+        }
+        return full_key
+
+    def get_api_key(self, full_key: str) -> dict | None:
+        return self.data.get("api_keys", {}).get(full_key)
+
+    def consume_api_key(self, full_key: str) -> tuple[bool, str, dict | None]:
+        """API so'rov kelganda chaqiriladi: kalitni tekshiradi, kunlik
+        hisobni kerak bo'lsa reset qiladi va limitdan bittasini ishlatadi.
+        Qaytaradi: (muvaffaqiyat, sabab, kalit-ma'lumoti).
+        sabab: "ok" | "invalid" | "revoked" | "expired" | "limit"."""
+        info = self.data.get("api_keys", {}).get(full_key)
+        if not info:
+            return False, "invalid", None
+        if not info.get("active", True):
+            return False, "revoked", info
+        if info.get("expires_at") and str(date.today()) > info["expires_at"]:
+            return False, "expired", info
+
+        today = str(date.today())
+        if info["last_reset"] != today:
+            info["last_reset"] = today
+            info["used_today"] = 0
+
+        if info["used_today"] >= info["daily_limit"]:
+            return False, "limit", info
+
+        info["used_today"] += 1
+        info["total_generated"] = info.get("total_generated", 0) + 1
+        return True, "ok", info
+
+    def refund_api_key(self, full_key: str):
+        """Generatsiya server xatosi bilan muvaffaqiyatsiz tugasa, ishlatilgan
+        limitni qaytaradi - tashqi dasturchi o'zining aybi bilan bo'lmagan
+        xato uchun limitidan yo'qotmasin."""
+        info = self.data.get("api_keys", {}).get(full_key)
+        if info and info["used_today"] > 0:
+            info["used_today"] -= 1
+            info["total_generated"] = max(0, info.get("total_generated", 1) - 1)
+
+    def revoke_api_key(self, full_key: str) -> bool:
+        info = self.data.get("api_keys", {}).get(full_key)
+        if not info:
+            return False
+        info["active"] = False
+        return True
+
+    def list_api_keys(self) -> dict:
+        return self.data.get("api_keys", {})
 
     def remaining_limit(self, user_id: int) -> int:
         if self.is_unlimited(user_id):

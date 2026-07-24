@@ -1,8 +1,7 @@
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-
-import secrets
 
 from config import SUPERADMIN_IDS
 from state import store, UNLIMITED
@@ -416,7 +415,44 @@ async def tariff_create_ref(message: Message, state: FSMContext, bot: Bot):
     )
 
 
-# ---------- "API key" - nomi/limit/kuni aniq maxsus kod (faqat admin/superadmin) ----------
+# ---------- Tashqi API key (boshqalar o'z botiga ulaydigan HTTP API kaliti) ----------
+
+@router.message(Command("apikeys"))
+async def cmd_api_keys(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    keys = store.list_api_keys()
+    if not keys:
+        return await message.answer("🔌 Hozircha hech qanday tashqi API key yaratilmagan.")
+
+    lines = ["🔌 <b>Tashqi API kalitlari:</b>\n"]
+    for full_key, info in keys.items():
+        status = "✅ faol" if info.get("active", True) else "🚫 bekor qilingan"
+        muddat = info["expires_at"] if info.get("expires_at") else "muddatsiz"
+        lines.append(
+            f"🏷 {info['name']} — {status}\n"
+            f"🔑 <code>{full_key}</code>\n"
+            f"📊 Bugun: {info['used_today']}/{info['daily_limit']} | Jami: {info.get('total_generated', 0)}\n"
+            f"🗓 Muddat: {muddat}\n"
+            f"❌ Bekor qilish: <code>/revokekey {full_key}</code>\n"
+        )
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("revokekey"))
+async def cmd_revoke_key(message: Message, bot: Bot):
+    if not is_admin(message.from_user.id):
+        return
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.answer("Foydalanish: <code>/revokekey RasmYaratuvchiRobot_XXXXXX</code>")
+    full_key = parts[1].strip()
+    if store.revoke_api_key(full_key):
+        store.schedule_save(bot)
+        await message.answer(f"✅ Key bekor qilindi: <code>{full_key}</code>")
+    else:
+        await message.answer("❌ Bunday key topilmadi.")
+
 
 @router.callback_query(F.data == "admcustomcode")
 async def cb_custom_code_start(call: CallbackQuery, state: FSMContext):
@@ -424,9 +460,12 @@ async def cb_custom_code_start(call: CallbackQuery, state: FSMContext):
         return await call.answer()
     await state.set_state(CustomCode.waiting_name)
     await call.message.answer(
-        "🔐 API key (maxsus kod) yaratish.\n\n"
-        "1/3 — Kalit nomini kiriting (foydalanuvchiga ko'rinadi, masalan: "
-        "<code>Sherzod uchun VIP</code>):",
+        "🔐 Tashqi API key yaratish.\n\n"
+        "Bu — boshqalar o'z botiga/ilovasiga \"AI'ning rasm-generatsiya API'si\" "
+        "sifatida ulab qo'yishi mumkin bo'lgan kalit. Kalit orqali chaqirilgan "
+        "har bir rasm sizning DB guruhingizga ham log bo'lib tushadi.\n\n"
+        "1/3 — Key nomini kiriting (kim/qaysi loyiha uchunligi, masalan: "
+        "<code>Jasur - reels bot</code>):",
         reply_markup=cancel_kb(),
     )
     await call.answer()
@@ -462,29 +501,19 @@ async def custom_code_days(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     await state.clear()
 
-    # Har bir "API key" o'ziga xos, yashirin (tariflar ro'yxatida ko'rinmaydigan)
-    # bir martalik tarif sifatida saqlanadi - shu orqali mavjud kod/grant
-    # tizimidan foydalaniladi, lekin sotuv ro'yxatida chiqmaydi.
-    tariff_key = f"key_{secrets.token_hex(4)}"
-    store.add_tariff(
-        name=tariff_key, label=data["name"], daily_limit=data["daily_limit"],
-        price_stars=0, ref_required=0, grantable_by="admin", hidden=True,
-    )
-    code = generate_code()
-    store.data["codes"][code] = {
-        "tariff": tariff_key, "days": days if days > 0 else None, "used": False,
-    }
+    full_key = store.generate_api_key(name=data["name"], daily_limit=data["daily_limit"], days=days)
     store.schedule_save(bot)
 
     muddat = f"{days} kunga" if days > 0 else "muddatsiz"
     await message.answer(
-        f"✅ API key yaratildi:\n\n"
+        f"✅ Tashqi API key yaratildi:\n\n"
         f"🏷 Nomi: {data['name']}\n"
         f"📊 Kunlik limit: {data['daily_limit']}\n"
         f"🗓 Muddat: {muddat}\n\n"
-        f"🔑 Kod:\n<code>{code}</code>\n\n"
-        f"Bu kodni faqat sotib olgan userga bering — u botga shu kodni yuborsa, "
-        f"limit avtomatik ishga tushadi."
+        f"🔑 Key:\n<code>{full_key}</code>\n\n"
+        f"Ulash uchun:\n"
+        f"<code>GET https://&lt;sizning-render-domeningiz&gt;/api/generate?key={full_key}&prompt=...</code>\n\n"
+        f"Har bir chaqiruvda yaratilgan rasm shu DB guruhga ham avtomatik tushadi."
     )
 
 

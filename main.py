@@ -13,6 +13,7 @@ from config import (
 from state import store
 from queue_worker import gen_queue
 from handlers import admin, user
+from api_server import register_api_routes
 
 logging.basicConfig(level=logging.INFO)
 
@@ -35,7 +36,7 @@ async def on_startup(app: web.Application):
     # Guruhdagi pin qilingan bot_state.html dan holatni tiklaymiz
     await store.load(bot)
 
-    # Rasm generatsiya navbatini ishga tushiramiz (bitta worker, ketma-ket bajaradi)
+    # Rasm generatsiya navbatini ishga tushiramiz (GEN_QUEUE_WORKERS tagacha parallel)
     gen_queue.start()
 
     if not WEBHOOK_HOST:
@@ -66,6 +67,8 @@ async def on_shutdown(app: web.Application):
 def create_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", health)
+    app["bot"] = bot
+    register_api_routes(app)
 
     webhook_handler = SimpleRequestHandler(
         dispatcher=dp,
