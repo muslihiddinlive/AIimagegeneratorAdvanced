@@ -125,7 +125,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 PROMPT_MAX_INPUT_LEN = 500
 
 # Groq qaytaradigan tayyor inglizcha promptning MAX belgi soni (strikt)
-GROQ_OUTPUT_MAX_LEN = 300
+GROQ_OUTPUT_MAX_LEN = 500  # boyitilgan (enhance qilingan) promptlar uchun 300 kam edi
 
 # Groq so'rovlari orasidagi minimal interval (soniya) - llama-3.3-70b-versatile
 # Free Tier TPM (6000 token/daqiqa) limitiga urilib qolmaslik uchun throttle.
