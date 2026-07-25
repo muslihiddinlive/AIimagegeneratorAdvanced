@@ -152,14 +152,16 @@ def tariffs_kb(tariffs: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def tariff_field_kb(name: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Kunlik limit", callback_data=f"tariffeditfield:{name}:daily_limit")],
-        [InlineKeyboardButton(text="⭐ Narx (stars)", callback_data=f"tariffeditfield:{name}:price_stars")],
-        [InlineKeyboardButton(text="🔗 Referal talabi", callback_data=f"tariffeditfield:{name}:ref_required")],
-        [InlineKeyboardButton(text="🗑 Tarifni o'chirish", callback_data=f"tariffdelete:{name}")],
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admtariffs")],
-    ])
+def tariff_field_kb(name: str, limit_only: bool = False) -> InlineKeyboardMarkup:
+    """limit_only=True bo'lsa (oddiy admin 'free' tarifni tahrirlayotganda),
+    faqat kunlik limit tugmasi ko'rsatiladi - narx/referal/o'chirish superadmin-only."""
+    rows = [[InlineKeyboardButton(text="📊 Kunlik limit", callback_data=f"tariffeditfield:{name}:daily_limit")]]
+    if not limit_only:
+        rows.append([InlineKeyboardButton(text="⭐ Narx (stars)", callback_data=f"tariffeditfield:{name}:price_stars")])
+        rows.append([InlineKeyboardButton(text="🔗 Referal talabi", callback_data=f"tariffeditfield:{name}:ref_required")])
+        rows.append([InlineKeyboardButton(text="🗑 Tarifni o'chirish", callback_data=f"tariffdelete:{name}")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admtariffs")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def tariff_delete_confirm_kb(name: str) -> InlineKeyboardMarkup:

@@ -297,21 +297,34 @@ async def cb_tariffs(call: CallbackQuery):
     await call.answer()
 
 
+def _can_edit_tariff_field(user_id: int, name: str, field: str) -> bool:
+    """Superadmin - istalgan tarif, istalgan maydonni o'zgartira oladi.
+    Oddiy admin - faqat 'free' tarifning kunlik limitini o'zgartira oladi
+    (narx, referal talabi va boshqa tariflar hali ham superadmin-only)."""
+    if is_superadmin(user_id):
+        return True
+    return is_admin(user_id) and name == "free" and field == "daily_limit"
+
+
 @router.callback_query(F.data.startswith("tariffedit:"))
 async def cb_tariff_edit(call: CallbackQuery):
-    if not is_superadmin(call.from_user.id):
-        return await call.answer("Faqat superadmin tarif sozlamalarini o'zgartira oladi.", show_alert=True)
     name = call.data.split(":", 1)[1]
+    if not (is_superadmin(call.from_user.id) or (is_admin(call.from_user.id) and name == "free")):
+        return await call.answer("Faqat superadmin tarif sozlamalarini o'zgartira oladi.", show_alert=True)
     label = store.tariff_label(name)
-    await call.message.edit_text(f"{label} - qaysi qiymatni o'zgartiramiz?", reply_markup=tariff_field_kb(name))
+    is_free_admin = is_admin(call.from_user.id) and not is_superadmin(call.from_user.id)
+    await call.message.edit_text(
+        f"{label} - qaysi qiymatni o'zgartiramiz?",
+        reply_markup=tariff_field_kb(name, limit_only=is_free_admin),
+    )
     await call.answer()
 
 
 @router.callback_query(F.data.startswith("tariffeditfield:"))
 async def cb_tariff_edit_field(call: CallbackQuery, state: FSMContext):
-    if not is_superadmin(call.from_user.id):
-        return await call.answer("Faqat superadmin.", show_alert=True)
     _, name, field = call.data.split(":", 2)
+    if not _can_edit_tariff_field(call.from_user.id, name, field):
+        return await call.answer("Sizda bu qiymatni o'zgartirish huquqi yo'q.", show_alert=True)
     await state.set_state(TariffEdit.waiting_value)
     await state.update_data(tariff=name, field=field)
     field_names = {"daily_limit": "kunlik limit", "price_stars": "narx (stars)", "ref_required": "referal talabi"}
