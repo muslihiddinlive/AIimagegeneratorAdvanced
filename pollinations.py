@@ -13,7 +13,10 @@ _semaphore = asyncio.Semaphore(GEN_QUEUE_WORKERS)
 async def generate_image(prompt: str, width: int = 1024, height: int = 1024) -> bytes:
     encoded = urllib.parse.quote(prompt)
     url = POLLINATIONS_URL.format(prompt=encoded)
-    params = {"width": width, "height": height, "nologo": "true"}
+    # `model` ni ANIQ belgilaymiz - Pollinations'ning "default" modeli vaqt
+    # o'tishi bilan ogohlantirishsiz o'zgarishi mumkin, shuning uchun sifat
+    # natijasi barqaror bo'lishi uchun aniq nomini yozamiz.
+    params = {"width": width, "height": height, "nologo": "true", "model": "flux"}
 
     async with _semaphore:
         timeout = aiohttp.ClientTimeout(total=60)
