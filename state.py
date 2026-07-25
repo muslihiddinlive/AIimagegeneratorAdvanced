@@ -406,10 +406,21 @@ tr:nth-child(even){{background:#151821}}
     # ---------- Tashqi API kalitlari (boshqalar o'z botiga ulab ishlatadi) ----------
 
     API_KEY_PREFIX = "RasmYaratuvchiRobot_"
-    _API_KEY_SUFFIX_CHARS = string.ascii_letters + string.digits
+
+    # Kuchli, keng alifbo: katta+kichik lotin harflar, raqamlar, xavfsiz
+    # belgilar va vizual jihatdan lotin harflariga o'xshash kirill harflari
+    # (masalan kirill "с" lotin "c"ga o'xshaydi) - bu brute-force/lug'at
+    # hujumini deyarli imkonsiz qiladi va vizual "o'xshash harf" chalkashligi
+    # orqali qo'lda taxmin qilishni ham qiyinlashtiradi.
+    _LATIN = string.ascii_uppercase + string.ascii_lowercase
+    _DIGITS = string.digits
+    _SYMBOLS = "!@$^*-.~()₽"
+    _CYRILLIC_LOOKALIKE = "аеорсухАЕОРСУХ"
+    _API_KEY_SUFFIX_CHARS = _LATIN + _DIGITS + _SYMBOLS + _CYRILLIC_LOOKALIKE
+    _API_KEY_SUFFIX_LEN = 14  # ~82^14 ehtimolli variant - amalda taxmin qilib bo'lmaydi
 
     def _random_api_suffix(self) -> str:
-        return "".join(secrets.choice(self._API_KEY_SUFFIX_CHARS) for _ in range(6))
+        return "".join(secrets.choice(self._API_KEY_SUFFIX_CHARS) for _ in range(self._API_KEY_SUFFIX_LEN))
 
     def generate_api_key(self, name: str, daily_limit: int, days: int = 0) -> str:
         """Tashqi dasturchiga beriladigan API kalit yaratadi. Format:

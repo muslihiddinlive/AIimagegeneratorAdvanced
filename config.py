@@ -104,6 +104,13 @@ POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}"
 # platformasining o'zi belgilagan qoida.
 STARS_CURRENCY = "XTR"
 
+# Vercel'dagi proxy'dan kelayotgan so'rovlarni tasdiqlash uchun umumiy maxfiy
+# kalit. Bu o'rnatilgan bo'lsa, /api/generate FAQAT shu sarlavha (header) bilan
+# kelgan so'rovlarni qabul qiladi - ya'ni Render manzili qandaydir yo'l bilan
+# oshkor bo'lib qolsa ham, to'g'ridan-to'g'ri chaqirib bo'lmaydi, faqat Vercel
+# proxy orqali (u holda ham bu maxfiy qiymatni bilish kerak).
+INTERNAL_PROXY_SECRET = os.getenv("INTERNAL_PROXY_SECRET", "")
+
 # ============================
 # Groq preprocessing sozlamalari
 # ============================

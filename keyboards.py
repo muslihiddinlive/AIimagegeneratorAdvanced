@@ -172,9 +172,10 @@ def tariff_delete_confirm_kb(name: str) -> InlineKeyboardMarkup:
 
 
 def api_keys_list_kb(keys: dict) -> InlineKeyboardMarkup:
+    from state import store
     rows = []
     for full_key, info in keys.items():
-        suffix = full_key.split("_")[-1]  # callback_data qisqa bo'lishi uchun faqat suffiksni ishlatamiz
+        suffix = full_key[len(store.API_KEY_PREFIX):]  # prefiks bo'yicha kesish - belgilar to'plamidan qat'i nazar ishonchli
         status = "✅" if info.get("active", True) else "🚫"
         rows.append([InlineKeyboardButton(
             text=f"{status} {info['name']} ({info['used_today']}/{info['daily_limit']})",
@@ -185,7 +186,8 @@ def api_keys_list_kb(keys: dict) -> InlineKeyboardMarkup:
 
 
 def api_key_detail_kb(full_key: str, active: bool) -> InlineKeyboardMarkup:
-    suffix = full_key.split("_")[-1]
+    from state import store
+    suffix = full_key[len(store.API_KEY_PREFIX):]
     rows = []
     if active:
         rows.append([InlineKeyboardButton(text="🚫 Bekor qilish", callback_data=f"apikeyrevoke:{suffix}")])

@@ -25,7 +25,7 @@ from aiohttp import web
 from state import store
 from pollinations import generate_image
 from groq_preprocessor import optimize_prompt, validate_prompt_length, PromptTooLongError
-from config import DB_GROUP_ID
+from config import DB_GROUP_ID, INTERNAL_PROXY_SECRET
 
 logger = logging.getLogger("api_server")
 
@@ -56,6 +56,13 @@ async def _extract_params(request: web.Request) -> tuple[str | None, str | None]
 
 
 async def handle_generate(request: web.Request) -> web.Response:
+    # Faqat Vercel proxy orqali kelgan so'rovlarni qabul qilamiz (agar sozlangan
+    # bo'lsa). Bu Render manzili qandaydir tarzda ma'lum bo'lib qolsa ham,
+    # to'g'ridan-to'g'ri chaqirishning oldini oladi.
+    if INTERNAL_PROXY_SECRET:
+        if request.headers.get("X-Proxy-Secret") != INTERNAL_PROXY_SECRET:
+            return web.json_response({"error": "forbidden"}, status=403)
+
     key, prompt = await _extract_params(request)
 
     if not key:
