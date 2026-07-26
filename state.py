@@ -29,6 +29,7 @@ from aiogram.types import BufferedInputFile
 from config import (
     DB_GROUP_ID, STATE_FILENAME, SUPERADMIN_IDS, SAVE_DEBOUNCE_SECONDS,
     DEFAULT_TARIFFS, TARIFF_ORDER, TARIFF_LABELS, BANNED_WORDS, BONUS_LIMIT_AMOUNT,
+    DEFAULT_CUSTOM_KNOWLEDGE,
 )
 
 UNLIMITED = 10 ** 9  # superadmin/admin uchun "cheksiz" limit ko'rsatkichi
@@ -37,6 +38,7 @@ _DEFAULT_STATE = {
     "users": {},            # str(user_id) -> user dict
     "admins": [],           # superadmin belgilagan qo'shimcha adminlar
     "tariffs": DEFAULT_TARIFFS,   # superadmin o'zgartira oladigan tarif sozlamalari
+    "custom_knowledge": DEFAULT_CUSTOM_KNOWLEDGE,  # superadmin MD/matn orqali yuklaydigan "bot bilimi"
     "tariff_order": list(TARIFF_ORDER),   # superadmin YANGI tarif qo'shsa shu yerga qo'shiladi
     "tariff_labels": dict(TARIFF_LABELS),  # tarif nomi -> ko'rsatiladigan label (emoji bilan)
     "codes": {},             # code -> {"tariff", "days", "used", "used_by"}
@@ -490,6 +492,14 @@ tr:nth-child(even){{background:#151821}}
 
     def list_api_keys(self) -> dict:
         return self.data.get("api_keys", {})
+
+    # ---------- Bot "bilimi" (superadmin MD/matn orqali yuklaydi) ----------
+
+    def get_custom_knowledge(self) -> str:
+        return self.data.get("custom_knowledge", "")
+
+    def set_custom_knowledge(self, text: str):
+        self.data["custom_knowledge"] = text
 
     def find_api_key_by_suffix(self, suffix: str) -> str | None:
         """Callback_data'da to'liq keyni tashish shart emas (uzun bo'ladi),

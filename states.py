@@ -64,6 +64,12 @@ class CustomCode(StatesGroup):
     waiting_days = State()
 
 
+class KnowledgeUpload(StatesGroup):
+    """Superadmin bot uchun "bilim" (o'zi haqida, dasturchisi haqida, kanali
+    haqida va h.k.) yuklaydi - MD fayl yoki oddiy matn xabar sifatida."""
+    waiting_content = State()
+
+
 class UserContact(StatesGroup):
     """Oddiy foydalanuvchi "Adminga murojaat" tugmasi orqali yozadi."""
     waiting_message = State()

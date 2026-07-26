@@ -38,6 +38,7 @@ def admin_panel() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔑 Tarif-kod yaratish", callback_data="admgencode")],
         [InlineKeyboardButton(text="🔐 API key (nomi/limit/kun)", callback_data="admcustomcode")],
         [InlineKeyboardButton(text="🔌 API kalitlarim", callback_data="admapikeys")],
+        [InlineKeyboardButton(text="🧠 Bot bilimlari (MD)", callback_data="admknowledge")],
         [InlineKeyboardButton(text="💳 Tariflar sozlamasi", callback_data="admtariffs")],
         [InlineKeyboardButton(text="🚫 Taqiqlangan so'zlar", callback_data="admwords")],
         [InlineKeyboardButton(text="📡 Kanal sozlamalari", callback_data="admchannels")],

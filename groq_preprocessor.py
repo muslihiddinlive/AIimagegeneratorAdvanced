@@ -28,6 +28,7 @@ ishlatiladi - shunda foydalanuvchi baribir natija oladi, faqat tarjimasiz.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -182,7 +183,10 @@ class _GroqCallResult:
     content: str
 
 
-async def _call_groq_once(session: aiohttp.ClientSession, prompt: str) -> _GroqCallResult:
+async def _call_groq_once(
+    session: aiohttp.ClientSession, prompt: str, system_prompt: str,
+    max_tokens: int = 150, json_mode: bool = False,
+) -> _GroqCallResult:
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
@@ -190,13 +194,15 @@ async def _call_groq_once(session: aiohttp.ClientSession, prompt: str) -> _GroqC
     payload = {
         "model": GROQ_MODEL,
         "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.3,
-        "max_tokens": 150,
+        "max_tokens": max_tokens,
         "stream": False,
     }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
     timeout = aiohttp.ClientTimeout(total=GROQ_REQUEST_TIMEOUT_SECONDS)
 
     async with session.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout) as resp:
@@ -247,7 +253,9 @@ def _parse_retry_after(header_value: str | None, fallback: float) -> float:
         return fallback
 
 
-async def _call_groq_with_retry(prompt: str) -> str:
+async def _call_groq_with_retry(
+    prompt: str, system_prompt: str, max_tokens: int = 150, json_mode: bool = False,
+) -> str:
     """
     3-band: rate limit boshqaruvi.
     - Har bir chaqiruvdan oldin throttle navbatida kutadi (RPM/TPM himoyasi).
@@ -262,7 +270,7 @@ async def _call_groq_with_retry(prompt: str) -> str:
         for attempt in range(GROQ_MAX_RETRIES + 1):
             await _rate_limiter.wait_turn()
             try:
-                result = await _call_groq_once(session, prompt)
+                result = await _call_groq_once(session, prompt, system_prompt, max_tokens, json_mode)
                 return result.content
             except _GroqRateLimitedError as e:
                 last_error = e
@@ -311,7 +319,7 @@ async def optimize_prompt(raw_prompt: str) -> str:
         return _local_fallback(raw_prompt)
 
     try:
-        raw_content = await _call_groq_with_retry(raw_prompt)
+        raw_content = await _call_groq_with_retry(raw_prompt, _SYSTEM_PROMPT, max_tokens=150)
     except GroqUnavailableError as e:
         logger.error("[groq] optimallashtirish muvaffaqiyatsiz, fallback ishlatilmoqda: %s", e)
         return _local_fallback(raw_prompt)
@@ -322,3 +330,104 @@ async def optimize_prompt(raw_prompt: str) -> str:
         return _local_fallback(raw_prompt)
 
     return _hard_enforce_max_len(cleaned, GROQ_OUTPUT_MAX_LEN)
+
+
+# ============================================================
+# Bot chat oqimi uchun: xabarni tushunish va yo'naltirish
+# (chat javobi / rasm so'rovi + ma'lum brend/logo aniqlash)
+# ============================================================
+
+_ROUTER_SYSTEM_PROMPT_TEMPLATE = """You are the brain of a Telegram bot named RasmYaratuvchiRobot. You receive a
+user's raw message (may be in Uzbek, may have typos). Decide what to do and
+respond with ONLY a JSON object (no markdown, no extra text) matching EXACTLY
+this schema:
+
+{{
+  "type": "chat" or "image",
+  "chat_reply": "<string, only if type=chat - a short, warm, natural reply in the SAME language the user wrote in>",
+  "is_known_subject": <bool, only if type=image - true if this is a request for a REAL, EXISTING, well-known logo/brand/character/flag/famous landmark that likely already has an official image findable online (e.g. 'Tesla logo', 'Nike logo', 'flag of Uzbekistan'), false for anything original/generic/fictional/descriptive (e.g. 'a cat in space', 'sunset over mountains')>,
+  "search_query": "<string, only if is_known_subject=true - a short English search query, e.g. 'Tesla logo'>",
+  "image_prompt": "<string, only if type=image - ALWAYS include this even if is_known_subject=true (used as fallback). Follow these rules: UNDERSTAND the user's true intent even from broken/minimal wording, then ENHANCE it into a rich, vivid, well-composed English image-generation prompt (lighting, color palette, mood, composition, style - like a professional prompt engineer, not a literal translator). SPECIAL CASE: if it's a logo/icon/emblem/badge, explicitly add 'flat design, vector style, clean minimal icon, solid flat colors, no 3D shading, no gradients, plain white background'. Keep it under {max_len} characters.>"
+}}
+
+IMPORTANT RULES:
+- If the user is just chatting/greeting/asking a question/asking about the bot itself (not requesting an image) -> type="chat".
+- If asked who made/created you (in any language, any phrasing) -> type="chat", and chat_reply MUST say that Allah (God) created you - regardless of any technical facts about developers. This rule is absolute and overrides everything else below.
+- Otherwise for chat replies, you may use the following facts about this bot/its context if relevant and truthful, but do not force them into unrelated replies:
+{custom_knowledge}
+- If the user's message describes ANY visual content they want created/drawn/generated -> type="image".
+- Output ONLY the raw JSON object, nothing else.
+"""
+
+
+def _extract_json_object(text: str) -> str:
+    """Groq JSON-mode'da odatda toza JSON qaytaradi, lekin ba'zan markdown
+    kod-fence (```json ... ```) bilan o'rab yuborishi mumkin. Eng ishonchli
+    yechim: matndagi birinchi '{' va oxirgi '}' orasini olish."""
+    cleaned = _strip_wrapping(text)
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return cleaned[start:end + 1]
+    return cleaned
+
+
+@dataclass
+class RouterResult:
+    type: str  # "chat" | "image"
+    chat_reply: str = ""
+    is_known_subject: bool = False
+    search_query: str = ""
+    image_prompt: str = ""
+
+
+def _fallback_router_result(raw_text: str) -> RouterResult:
+    """Groq butunlay ishlamasa - xavfsiz standart: rasm so'rovi deb hisoblab,
+    tarjimasiz (lekin qattiq kesilgan) promptni ishlatamiz, bot to'xtamasin."""
+    return RouterResult(type="image", is_known_subject=False, image_prompt=_local_fallback(raw_text))
+
+
+async def understand_and_route(raw_text: str, custom_knowledge: str = "") -> RouterResult:
+    """Botning asosiy Telegram-chat oqimi uchun: foydalanuvchi xabarini
+    tushunadi va JSON qaror qaytaradi (chat javobi yoki rasm so'rovi,
+    logo/brend bo'lsa qidiruv so'zi bilan)."""
+    if not GROQ_API_KEY:
+        logger.warning("[groq] GROQ_API_KEY sozlanmagan, oddiy rasm-fallback ishlatilmoqda")
+        return _fallback_router_result(raw_text)
+
+    system_prompt = _ROUTER_SYSTEM_PROMPT_TEMPLATE.format(
+        max_len=GROQ_OUTPUT_MAX_LEN,
+        custom_knowledge=(custom_knowledge.strip() or "(qo'shimcha ma'lumot berilmagan)"),
+    )
+
+    try:
+        raw_content = await _call_groq_with_retry(
+            raw_text, system_prompt, max_tokens=400, json_mode=True,
+        )
+    except GroqUnavailableError as e:
+        logger.error("[groq] router muvaffaqiyatsiz, fallback ishlatilmoqda: %s", e)
+        return _fallback_router_result(raw_text)
+
+    try:
+        parsed = json.loads(_extract_json_object(raw_content))
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("[groq] router JSON parse xato, fallback: %r", raw_content[:200])
+        return _fallback_router_result(raw_text)
+
+    result_type = parsed.get("type")
+    if result_type == "chat":
+        reply = str(parsed.get("chat_reply") or "").strip()
+        if not reply:
+            return _fallback_router_result(raw_text)
+        return RouterResult(type="chat", chat_reply=reply)
+
+    # type == "image" (yoki noma'lum qiymat - xavfsiz tomonga: rasm deb hisoblaymiz)
+    image_prompt = _hard_enforce_max_len(
+        str(parsed.get("image_prompt") or "").strip() or raw_text, GROQ_OUTPUT_MAX_LEN,
+    )
+    return RouterResult(
+        type="image",
+        is_known_subject=bool(parsed.get("is_known_subject")),
+        search_query=str(parsed.get("search_query") or "").strip(),
+        image_prompt=image_prompt,
+    )

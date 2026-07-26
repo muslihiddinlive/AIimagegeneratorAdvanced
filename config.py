@@ -136,3 +136,28 @@ GROQ_MAX_RETRIES = int(os.getenv("GROQ_MAX_RETRIES", "4"))
 
 # Bitta Groq so'roviga ajratilgan max kutish vaqti (soniya)
 GROQ_REQUEST_TIMEOUT_SECONDS = float(os.getenv("GROQ_REQUEST_TIMEOUT_SECONDS", "20"))
+
+# ============================
+# Stable Horde (bot ICHIDAGI chat oqimi uchun asosiy rasm generatsiya dvigateli)
+# ============================
+# DIQQAT: Stable Horde - ko'ngillilar (community) GPU tarmog'i, BEPUL, lekin
+# Pollinations kabi "darhol" emas - odatda 10-60s, ba'zan bir necha daqiqa
+# (navbat holatiga bog'liq). Shuning uchun bu FAQAT botning o'z Telegram
+# chatida ishlatiladi (u yerda "kuting..." deb progress ko'rsatish mumkin).
+# Tashqi HTTP API (/api/generate, /genapi) tezlik uchun Pollinations'da qoladi.
+STABLE_HORDE_API_KEY = os.getenv("STABLE_HORDE_API_KEY", "")  # bo'sh = anonim (past prioritet)
+STABLE_HORDE_API_URL = "https://stablehorde.net/api/v2"
+STABLE_HORDE_MAX_WAIT_SECONDS = int(os.getenv("STABLE_HORDE_MAX_WAIT_SECONDS", "150"))
+STABLE_HORDE_POLL_INTERVAL_SECONDS = 4.0
+
+# ============================
+# Bot shaxsiyati / superadmin qo'shadigan "bilim" (chat uchun)
+# ============================
+# Bot kim yaratganini so'rashsa - HAR DOIM shu javob (texnik/dasturchi
+# ma'lumotidan qat'i nazar, bu ustuvor turadi).
+BOT_CREATOR_ANSWER = "Meni Alloh yaratgan."
+
+# Superadmin admin panel orqali yuklaydigan erkin matn/MD fayl - bot haqida,
+# dasturchi haqida, kanal haqida va h.k. - Groq'ning chat javoblariga kontekst
+# sifatida qo'shiladi. Standart holatda bo'sh.
+DEFAULT_CUSTOM_KNOWLEDGE = ""

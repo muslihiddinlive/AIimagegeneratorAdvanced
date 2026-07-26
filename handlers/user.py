@@ -10,8 +10,11 @@ from config import DB_GROUP_ID, SUPERADMIN_IDS, STARS_CURRENCY
 from state import store, UNLIMITED
 from moderation import contains_banned
 from pollinations import generate_image
+from stable_horde import generate_image as stable_horde_generate
+from image_search import search_logo_image
 from groq_preprocessor import (
     optimize_prompt,
+    understand_and_route,
     validate_prompt_length,
     build_length_error_message,
     PromptTooLongError,
@@ -67,38 +70,47 @@ async def _check_mandatory(message: Message, bot: Bot) -> bool:
     return False
 
 
-async def _generate_job(message: Message, bot: Bot, prompt: str, user_id: int, status: Message):
-    try:
-        await status.edit_text("🧠 Prompt optimallashtirilmoqda...")
-    except Exception:
-        pass
+async def _generate_job(message: Message, bot: Bot, prompt: str, user_id: int, status: Message, route):
+    img_bytes = None
+    source = "generated"
 
-    # Groq preprocessing: o'zbekcha/xato promptni tozalab, inglizchaga
-    # tarjima qilib, <300 belgigacha qisqartiradi. Groq ishlamay qolsa ham
-    # optimize_prompt() ichida fallback bor - bu yer hech qachon crash bo'lmaydi.
-    optimized_prompt = await optimize_prompt(prompt)
-
-    try:
-        await status.edit_text("⏳ Rasm tayyorlanmoqda, biroz kuting...")
-    except Exception:
-        pass
-
-    try:
-        img_bytes = await generate_image(optimized_prompt)
-    except Exception as e:
-        print(f"[generate] Pollinations xatosi (prompt={optimized_prompt!r}): {type(e).__name__}: {e}")
+    if route.is_known_subject and route.search_query:
         try:
-            await status.edit_text("❌ Xatolik yuz berdi. Birozdan so'ng qaytadan urinib ko'ring.")
+            await status.edit_text(f"🔎 \"{route.search_query}\" internetdan qidirilmoqda...")
         except Exception:
             pass
-        return
+        img_bytes = await search_logo_image(route.search_query)
+        if img_bytes:
+            source = "search"
+
+    if img_bytes is None:
+        try:
+            await status.edit_text("⏳ Rasm tayyorlanmoqda (biroz vaqt olishi mumkin)...")
+        except Exception:
+            pass
+        try:
+            img_bytes = await stable_horde_generate(route.image_prompt)
+            source = "stable_horde"
+        except Exception as e:
+            print(f"[generate] Stable Horde xatosi, Pollinations'ga o'tamiz: {type(e).__name__}: {e}")
+            try:
+                img_bytes = await generate_image(route.image_prompt)
+                source = "pollinations"
+            except Exception as e2:
+                print(f"[generate] Pollinations ham ishlamadi (prompt={route.image_prompt!r}): {type(e2).__name__}: {e2}")
+                try:
+                    await status.edit_text("❌ Xatolik yuz berdi. Birozdan so'ng qaytadan urinib ko'ring.")
+                except Exception:
+                    pass
+                return
 
     store.consume_limit(user_id, 1)
     store.log_prompt(user_id, prompt, blocked=False)
 
+    caption_prefix = "🔎 Internetdan topilgan tayyor rasm!" if source == "search" else "✅ Tayyor!"
     photo = BufferedInputFile(img_bytes, filename="result.png")
     sent_photo = await message.answer_photo(
-        photo, caption=f"✅ Tayyor!\nQolgan limit: {_left_text(user_id)}"
+        photo, caption=f"{caption_prefix}\nQolgan limit: {_left_text(user_id)}"
     )
     try:
         await status.delete()
@@ -114,7 +126,7 @@ async def _generate_job(message: Message, bot: Bot, prompt: str, user_id: int, s
             DB_GROUP_ID,
             BufferedInputFile(img_bytes, filename="log.png"),
             caption=(
-                f"🖼 Yangi generatsiya\n"
+                f"🖼 Yangi generatsiya ({source})\n"
                 f"👤 {message.from_user.full_name} (@{message.from_user.username or '—'}) [id: {user_id}]\n"
                 f"📝 Prompt: {prompt}"
             ),
@@ -141,6 +153,21 @@ async def _do_generate(message: Message, bot: Bot, prompt: str):
     if not await _check_mandatory(message, bot):
         return
 
+    try:
+        await bot.send_chat_action(message.chat.id, "typing")
+    except Exception:
+        pass
+
+    # Groq: bu chat xabarimi yoki rasm so'roviмi - va agar rasm bo'lsa, bu
+    # ma'lum brend/logo bo'lib, avval internetdan qidirish kerakmi - shularni
+    # aniqlaydi. Groq ishlamasa ham, ichida xavfsiz fallback bor (rasm deb
+    # hisoblanadi), bot hech qachon shu yerda to'xtab qolmaydi.
+    route = await understand_and_route(prompt, store.get_custom_knowledge())
+
+    if route.type == "chat":
+        await message.answer(route.chat_reply)
+        return
+
     remaining = store.remaining_limit(user.id)
     if remaining <= 0:
         await message.answer(
@@ -164,10 +191,10 @@ async def _do_generate(message: Message, bot: Bot, prompt: str):
     if position > 0:
         status = await message.answer(f"⏳ Navbatga qo'shildingiz. Sizdan oldin {position} ta so'rov bor.")
     else:
-        status = await message.answer("⏳ Rasm tayyorlanmoqda, biroz kuting...")
+        status = await message.answer("⏳ Boshlanmoqda...")
 
     async def job():
-        await _generate_job(message, bot, prompt, user.id, status)
+        await _generate_job(message, bot, prompt, user.id, status, route)
 
     await gen_queue.enqueue(job)
 

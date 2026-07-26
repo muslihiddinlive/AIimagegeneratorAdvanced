@@ -1,5 +1,5 @@
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, Document
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
@@ -15,6 +15,7 @@ from keyboards import (
 from states import (
     GenCode, TariffGrant, TariffEdit, Broadcast, WordsManage,
     SendToUser, AdminAdd, ChannelSetup, TariffCreate, CustomCode,
+    KnowledgeUpload,
 )
 
 router = Router()
@@ -517,6 +518,57 @@ async def cb_api_key_revoke(call: CallbackQuery, bot: Bot):
     await call.answer("🚫 Key bekor qilindi.", show_alert=True)
     keys = store.list_api_keys()
     await call.message.edit_text("🔌 Tashqi API kalitlaringiz:", reply_markup=api_keys_list_kb(keys))
+
+
+# ---------- Bot bilimlari (superadmin MD/matn yuklaydi) ----------
+
+@router.callback_query(F.data == "admknowledge")
+async def cb_knowledge_start(call: CallbackQuery, state: FSMContext):
+    if not is_superadmin(call.from_user.id):
+        return await call.answer("Faqat superadmin.", show_alert=True)
+    current = store.get_custom_knowledge()
+    preview = (
+        f"\n\n📄 Hozirgi bilim ({len(current)} belgi):\n<code>{current[:500]}</code>"
+        if current else "\n\nHozircha hech narsa yuklanmagan."
+    )
+    await state.set_state(KnowledgeUpload.waiting_content)
+    await call.message.answer(
+        "🧠 Bot bilimlarini yuklash/yangilash.\n\n"
+        "Bot o'zi haqida, dasturchisi haqida, kanalingiz haqida va shunga "
+        "o'xshash - foydalanuvchi bot bilan suhbatlashganda ishlatiladigan "
+        "kontekstni yuboring. .md/.txt fayl yoki oddiy matn xabar bo'lishi mumkin "
+        "(yangisi eskisini TO'LIQ almashtiradi)." + preview,
+        reply_markup=cancel_kb(),
+    )
+    await call.answer()
+
+
+@router.message(KnowledgeUpload.waiting_content, F.document)
+async def knowledge_upload_document(message: Message, state: FSMContext, bot: Bot):
+    doc: Document = message.document
+    if doc.file_size and doc.file_size > 200_000:
+        return await message.answer("❌ Fayl juda katta - 200KB dan kichik bo'lsin.")
+    file = await bot.get_file(doc.file_id)
+    buf = await bot.download_file(file.file_path)
+    try:
+        text = buf.read().decode("utf-8")
+    except UnicodeDecodeError:
+        return await message.answer("❌ Faylni UTF-8 matn sifatida o'qib bo'lmadi. Iltimos oddiy .md/.txt yuboring.")
+    await state.clear()
+    store.set_custom_knowledge(text)
+    store.schedule_save(bot)
+    await message.answer(f"✅ Bot bilimlari yangilandi ({len(text)} belgi).", reply_markup=admin_panel())
+
+
+@router.message(KnowledgeUpload.waiting_content, F.text)
+async def knowledge_upload_text(message: Message, state: FSMContext, bot: Bot):
+    text = message.text.strip()
+    if not text:
+        return await message.answer("❌ Bo'sh bo'lmasin.")
+    await state.clear()
+    store.set_custom_knowledge(text)
+    store.schedule_save(bot)
+    await message.answer(f"✅ Bot bilimlari yangilandi ({len(text)} belgi).", reply_markup=admin_panel())
 
 
 # ---------- Tashqi API key (boshqalar o'z botiga ulaydigan HTTP API kaliti) ----------
