@@ -345,9 +345,10 @@ this schema:
 {{
   "type": "chat" or "image",
   "chat_reply": "<string, only if type=chat - a short, warm, natural reply in the SAME language the user wrote in>",
-  "is_known_subject": <bool, only if type=image - true if this is a request for a REAL, EXISTING, well-known logo/brand/character/flag/famous landmark that likely already has an official image findable online (e.g. 'Tesla logo', 'Nike logo', 'flag of Uzbekistan'), false for anything original/generic/fictional/descriptive (e.g. 'a cat in space', 'sunset over mountains')>,
-  "search_query": "<string, only if is_known_subject=true - a short English search query, e.g. 'Tesla logo'>",
-  "image_prompt": "<string, only if type=image - ALWAYS include this even if is_known_subject=true (used as fallback). Follow these rules: UNDERSTAND the user's true intent even from broken/minimal wording, then ENHANCE it into a rich, vivid, well-composed English image-generation prompt (lighting, color palette, mood, composition, style - like a professional prompt engineer, not a literal translator). SPECIAL CASE: if it's a logo/icon/emblem/badge, explicitly add 'flat design, vector style, clean minimal icon, solid flat colors, no 3D shading, no gradients, plain white background'. Keep it under {max_len} characters.>"
+  "is_known_subject": <bool, only if type=image - true if this is a request for a REAL, EXISTING, well-known logo/brand/character/flag/famous landmark/real person that likely already has an official/real image findable online (e.g. 'Tesla logo', 'Cristiano Ronaldo', 'flag of Uzbekistan'), false for anything original/generic/fictional/descriptive (e.g. 'a cat in space', 'sunset over mountains')>,
+  "search_query": "<string, only if is_known_subject=true - a short English search query, e.g. 'Tesla logo' or 'Cristiano Ronaldo'>",
+  "overlay_text": "<string, only if type=image AND the user wants a SPECIFIC exact name/word/phrase/title visibly written on the image (e.g. a channel name for a banner, a brand name, a custom quote/title) - put ONLY that exact text here, preserving its exact spelling/casing. AI image models cannot render text reliably, so this text will be drawn programmatically afterward. Leave empty '' if no specific text needs to appear in the image.>",
+  "image_prompt": "<string, only if type=image - ALWAYS include this even if is_known_subject=true (used as fallback) or overlay_text is set (used as the background). Follow these rules: UNDERSTAND the user's true intent even from broken/minimal wording, then ENHANCE it into a rich, vivid, well-composed English image-generation prompt (lighting, color palette, mood, composition, style - like a professional prompt engineer, not a literal translator). SPECIAL CASE for logos/icons: explicitly add 'flat design, vector style, clean minimal icon, solid flat colors, no 3D shading, no gradients, plain white background'. CRITICAL: if overlay_text is set, this prompt must describe ONLY the visual background/design theme and MUST explicitly include 'no text, no letters, no words, no writing anywhere in the image' - never ask the image model to render the actual words, since that will be added separately. Keep it under {max_len} characters.>"
 }}
 
 IMPORTANT RULES:
@@ -378,6 +379,7 @@ class RouterResult:
     chat_reply: str = ""
     is_known_subject: bool = False
     search_query: str = ""
+    overlay_text: str = ""
     image_prompt: str = ""
 
 
@@ -429,5 +431,6 @@ async def understand_and_route(raw_text: str, custom_knowledge: str = "") -> Rou
         type="image",
         is_known_subject=bool(parsed.get("is_known_subject")),
         search_query=str(parsed.get("search_query") or "").strip(),
+        overlay_text=str(parsed.get("overlay_text") or "").strip(),
         image_prompt=image_prompt,
     )

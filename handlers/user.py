@@ -12,6 +12,7 @@ from moderation import contains_banned
 from pollinations import generate_image
 from stable_horde import generate_image as stable_horde_generate
 from image_search import search_logo_image
+from text_overlay import add_text_overlay
 from groq_preprocessor import (
     optimize_prompt,
     understand_and_route,
@@ -74,7 +75,9 @@ async def _generate_job(message: Message, bot: Bot, prompt: str, user_id: int, s
     img_bytes = None
     source = "generated"
 
-    if route.is_known_subject and route.search_query:
+    # overlay_text bo'lsa - bu maxsus banner/nom talab qiladi, tayyor rasm
+    # qidirish mantiqsiz (o'sha aniq matn internetda tayyor holda bo'lmaydi).
+    if route.is_known_subject and route.search_query and not route.overlay_text:
         try:
             await status.edit_text(f"🔎 \"{route.search_query}\" internetdan qidirilmoqda...")
         except Exception:
@@ -103,6 +106,12 @@ async def _generate_job(message: Message, bot: Bot, prompt: str, user_id: int, s
                 except Exception:
                     pass
                 return
+
+    if route.overlay_text:
+        # AI matnni deyarli hech qachon to'g'ri chizolmaydi - shuning uchun
+        # fon AI'da tayyorlanadi, aniq matn esa shu yerda dasturiy chiziladi.
+        img_bytes = add_text_overlay(img_bytes, route.overlay_text)
+        source += "+overlay"
 
     store.consume_limit(user_id, 1)
     store.log_prompt(user_id, prompt, blocked=False)
