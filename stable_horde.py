@@ -35,7 +35,7 @@ class StableHordeTimeoutError(StableHordeError):
     """Navbat juda uzoq davom etdi (ko'ngillilar band) - fallback ishlatilsin."""
 
 
-async def generate_image(prompt: str, width: int = 512, height: int = 512) -> bytes:
+async def generate_image(prompt: str, width: int = 768, height: int = 768) -> bytes:
     """Stable Horde orqali rasm generatsiya qiladi va bayt sifatida qaytaradi.
     Xato/timeout bo'lsa mos exception ko'taradi - chaqiruvchi tomon
     (masalan Pollinations'ga) fallback qilishi kerak."""
@@ -49,12 +49,17 @@ async def generate_image(prompt: str, width: int = 512, height: int = 512) -> by
         "params": {
             "width": width,
             "height": height,
-            "steps": 25,
+            "steps": 20,
             "cfg_scale": 7,
             "sampler_name": "k_euler",
             "n": 1,
         },
-        "models": ["stable_diffusion"],
+        # Flux.1-Schnell - SD1.5'dan SEZILARLI yaxshiroq sifat/prompt tushunish
+        # (zamonaviy model, 2024-2025 chiqqan, Horde'da bepul mavjud). Agar
+        # Flux uchun worker band bo'lsa, Horde avtomatik ravishda ro'yxatdagi
+        # keyingi (kengroq mavjud) modelga o'tadi - shuning uchun ikkalasini
+        # ham beramiz: sifat ustuvor, mavjudlik kafolatlangan.
+        "models": ["Flux.1-Schnell fp8 (Compact)", "stable_diffusion"],
         "nsfw": False,
         "censor_nsfw": True,
         "r2": True,  # rasmni bevosita URL sifatida qaytarish (base64 o'rniga)
