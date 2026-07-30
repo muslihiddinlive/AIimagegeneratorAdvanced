@@ -1,3 +1,5 @@
+import logging
+
 from aiogram import Router, F, Bot
 from aiogram.filters import Command, CommandObject
 from aiogram.types import (
@@ -28,6 +30,8 @@ from keyboards import (
 from states import RequestTariff, UserContact
 from queue_worker import gen_queue
 
+logger = logging.getLogger("user_handlers")
+
 router = Router()
 
 _bot_username_cache = {"value": None}
@@ -50,7 +54,7 @@ async def _is_channel_member(bot: Bot, username: str, user_id: int) -> bool:
         member = await bot.get_chat_member(f"@{username}", user_id)
         return member.status in ("member", "administrator", "creator")
     except Exception as e:
-        print(f"[channel] a'zolikni tekshirishda xato (@{username}, {user_id}): {e}")
+        logger.warning(f"[channel] a'zolikni tekshirishda xato (@{username}, {user_id}): {e}")
         return False
 
 
@@ -83,6 +87,7 @@ async def _generate_job(message: Message, bot: Bot, prompt: str, user_id: int, s
         except Exception:
             pass
         img_bytes = await search_logo_image(route.search_query)
+        logger.info(f"[generate] user={user_id} qidiruv '{route.search_query}' -> {'topildi' if img_bytes else 'topilmadi'}")
         if img_bytes:
             source = "search"
 
@@ -92,15 +97,17 @@ async def _generate_job(message: Message, bot: Bot, prompt: str, user_id: int, s
         except Exception:
             pass
         try:
+            logger.info(f"[generate] user={user_id} Stable Horde chaqirilmoqda...")
             img_bytes = await stable_horde_generate(route.image_prompt)
             source = "stable_horde"
+            logger.info(f"[generate] user={user_id} Stable Horde muvaffaqiyatli")
         except Exception as e:
-            print(f"[generate] Stable Horde xatosi, Pollinations'ga o'tamiz: {type(e).__name__}: {e}")
+            logger.warning(f"[generate] Stable Horde xatosi, Pollinations'ga o'tamiz: {type(e).__name__}: {e}")
             try:
                 img_bytes = await generate_image(route.image_prompt)
                 source = "pollinations"
             except Exception as e2:
-                print(f"[generate] Pollinations ham ishlamadi (prompt={route.image_prompt!r}): {type(e2).__name__}: {e2}")
+                logger.error(f"[generate] Pollinations ham ishlamadi (prompt={route.image_prompt!r}): {type(e2).__name__}: {e2}")
                 try:
                     await status.edit_text("❌ Xatolik yuz berdi. Birozdan so'ng qaytadan urinib ko'ring.")
                 except Exception:
@@ -141,7 +148,7 @@ async def _generate_job(message: Message, bot: Bot, prompt: str, user_id: int, s
             ),
         )
     except Exception as e:
-        print(f"[log] guruhga yuborishda xato: {e}")
+        logger.warning(f"[log] guruhga yuborishda xato: {e}")
 
 
 async def _do_generate(message: Message, bot: Bot, prompt: str):
@@ -172,6 +179,11 @@ async def _do_generate(message: Message, bot: Bot, prompt: str):
     # aniqlaydi. Groq ishlamasa ham, ichida xavfsiz fallback bor (rasm deb
     # hisoblanadi), bot hech qachon shu yerda to'xtab qolmaydi.
     route = await understand_and_route(prompt, store.get_custom_knowledge())
+    logger.info(
+        f"[route] user={user.id} type={route.type} is_known_subject={route.is_known_subject} "
+        f"search_query={route.search_query!r} overlay_text={route.overlay_text!r} "
+        f"image_prompt={route.image_prompt[:120]!r}"
+    )
 
     if route.type == "chat":
         await message.answer(route.chat_reply)
@@ -224,7 +236,7 @@ async def _generate_job_api(message: Message, bot: Bot, prompt: str, key: str, s
     try:
         img_bytes = await generate_image(optimized_prompt)
     except Exception as e:
-        print(f"[genapi] Pollinations xatosi (prompt={optimized_prompt!r}): {type(e).__name__}: {e}")
+        logger.error(f"[genapi] Pollinations xatosi (prompt={optimized_prompt!r}): {type(e).__name__}: {e}")
         store.refund_api_key(key)  # bizning xatomiz uchun limitni qaytaramiz
         try:
             await status.edit_text("❌ Xatolik yuz berdi. Birozdan so'ng qaytadan urinib ko'ring.")
@@ -258,7 +270,7 @@ async def _generate_job_api(message: Message, bot: Bot, prompt: str, key: str, s
             ),
         )
     except Exception as e:
-        print(f"[genapi log] guruhga yuborishda xato: {e}")
+        logger.warning(f"[genapi log] guruhga yuborishda xato: {e}")
 
 
 @router.message(Command("genapi"))
