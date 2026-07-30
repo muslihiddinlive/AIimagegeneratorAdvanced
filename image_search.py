@@ -1,16 +1,18 @@
 """
-Ma'lum brend/logo/shaxs rasmlarini internetdan (Wikipedia/Wikimedia orqali)
-qidirish.
+Ma'lum brend/logo/shaxs rasmlarini internetdan qidirish.
 
-Ikki bosqichli qidiruv:
-  1) Wikipedia'ning "File:" nom fazosida to'g'ridan-to'g'ri qidiramiz - bu
-     "Nike logo", "Windows logo" kabi so'rovlar uchun ANIQ rasmiy logotip
-     fayliga (odatda SVG/PNG, masalan "File:Windows logo - 2021.svg") olib
-     boradi - maqolaning tasodifiy skrinshoti emas.
-  2) Fayl topilmasa (masalan real shaxs/joy so'ralganda), oddiy maqola
-     qidiruvi + shu maqolaning asosiy rasmiga (pageimage) o'tamiz.
+Uch bosqichli qidiruv (tezlik va aniqlik bo'yicha kamayish tartibida):
+  1) Simple Icons (github.com/simple-icons/simple-icons) - ~3450 ta brend
+     uchun RASMIY, aniq SVG logotiplar, MIT litsenziyali, fayl nomi orqali
+     to'g'ridan-to'g'ri (qidiruv emas, ANIQ moslik) - eng tez va ishonchli,
+     lekin har bir brend yo'q (masalan Amazon, Microsoft asosiy logotipi yo'q).
+  2) Wikipedia "File:" nom fazosi - to'g'ridan-to'g'ri rasmiy logotip fayliga
+     olib boradi (Simple Icons'da topilmagan brendlar uchun).
+  3) Wikimedia Commons "File:" nom fazosi, so'ng Wikipedia maqola-rasmi -
+     oxirgi zaxira (shaxs/joy/umumiy holatlar uchun).
 """
 import logging
+import re
 
 import aiohttp
 
@@ -18,6 +20,43 @@ logger = logging.getLogger("image_search")
 
 _WIKI_API = "https://en.wikipedia.org/w/api.php"
 _COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+_SIMPLE_ICONS_BASE = "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons"
+
+_SUFFIX_WORDS = re.compile(
+    r"\b(logo|logotype|logotip|icon|emblem|emblema|brend|brand|belgisi|nishoni|company|inc|corporation)\b",
+    re.IGNORECASE,
+)
+
+
+def _slugify(name: str) -> str:
+    """Simple Icons'ning fayl nomlash konvensiyasiga taxminiy moslashtirish:
+    kichik harf, maxsus belgilarni olib tashlash/almashtirish, bo'shliqsiz."""
+    name = _SUFFIX_WORDS.sub("", name).strip()
+    name = name.lower()
+    name = (
+        name.replace("+", "plus").replace("#", "sharp").replace("&", "and")
+        .replace(".", "").replace("'", "")
+    )
+    name = re.sub(r"[^a-z0-9]", "", name)
+    return name
+
+
+async def _try_simple_icons(session: aiohttp.ClientSession, query: str) -> bytes | None:
+    slug = _slugify(query)
+    if not slug:
+        return None
+    svg_url = f"{_SIMPLE_ICONS_BASE}/{slug}.svg"
+    # Telegram SVG'ni to'g'ridan-to'g'ri "photo" sifatida qabul qilmaydi, shuning
+    # uchun bepul wsrv.nl proxy orqali PNG'ga aylantirib olamiz (o'zimizda hech
+    # qanday cairo/tizim kutubxonasi kerak emas - Render'da ishlashi kafolatlanadi).
+    proxy_url = f"https://wsrv.nl/?url={svg_url}&w=1024&h=1024&fit=contain&bg=white&output=png"
+    try:
+        async with session.get(proxy_url) as resp:
+            if resp.status == 200 and "image" in resp.headers.get("content-type", ""):
+                return await resp.read()
+    except Exception as e:
+        logger.warning(f"[image_search] Simple Icons/wsrv.nl xatosi ({slug!r}): {e}")
+    return None
 
 
 async def _search_file_namespace(session: aiohttp.ClientSession, api_url: str, query: str) -> bytes | None:
@@ -100,12 +139,18 @@ async def _search_article_pageimage(session: aiohttp.ClientSession, query: str) 
 
 async def search_logo_image(query: str) -> bytes | None:
     """Berilgan nom bo'yicha tayyor rasm qidiradi:
-    1) Wikipedia File: nom fazosi (logolar uchun eng aniq)
-    2) Wikimedia Commons File: nom fazosi (Wikipedia'da topilmasa)
-    3) Wikipedia maqola-rasmi (shaxs/joy/umumiy holatlar uchun)
+    1) Simple Icons (aniq, rasmiy, tezkor - ~3450 brend)
+    2) Wikipedia File: nom fazosi (Simple Icons'da yo'q brendlar uchun)
+    3) Wikimedia Commons File: nom fazosi
+    4) Wikipedia maqola-rasmi (shaxs/joy/umumiy holatlar uchun)
     Hech narsa topilmasa None - chaqiruvchi tomon AI generatsiyaga o'tadi."""
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+            result = await _try_simple_icons(session, query)
+            if result:
+                logger.info(f"[image_search] Simple Icons'da topildi: {query!r}")
+                return result
+
             result = await _search_file_namespace(session, _WIKI_API, query)
             if result:
                 return result
